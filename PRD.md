@@ -1,9 +1,9 @@
 # Product Requirements Document (PRD)
 # Bina Marga Survey Photo Service
 
-**Version:** 1.1  
+**Version:** 1.2  
 **Date:** March 27, 2026  
-**Status:** In Progress - Domain Layer Complete  
+**Status:** In Progress - Repository Layer Complete  
 
 ---
 
@@ -20,20 +20,26 @@
 | Domain Errors | ✅ Complete | `internal/model/error.go` | All domain errors defined |
 | Domain Constants | ✅ Complete | `internal/model/constants.go` | File limits, pagination, rate limits |
 | Unit Tests | ✅ Complete | `internal/model/**/*_test.go` | Tests for VOs, entities, DTOs |
+| Repository Layer | ✅ Complete | `internal/repository/` | Interfaces, PostgreSQL implementations |
+| PhotoRepository | ✅ Complete | `internal/repository/postgres/photo.go` | Full CRUD, Browse, Search |
+| PendingUploadRepository | ✅ Complete | `internal/repository/postgres/pending_upload.go` | Token lifecycle management |
+| APIKeyRepository | ✅ Complete | `internal/repository/postgres/api_key.go` | Hash-based lookup, scopes |
+| AuditLogRepository | ✅ Complete | `internal/repository/postgres/audit_log.go` | Immutable logging |
+| Database Migrations | ✅ Complete | `migrations/` | Initial schema with indexes |
+| pgx v5 Driver | ✅ Complete | `go.mod` | PostgreSQL driver added |
 
 ### Pending Components
 
 | Component | Status | Priority | Notes |
 |-----------|--------|----------|-------|
-| Repository Layer | ❌ Not Started | High | PostgreSQL with pgx v5 |
 | Handler Layer | ❌ Not Started | High | REST handlers for all endpoints |
 | Service Layer | ❌ Not Started | High | Business logic orchestration |
-| Database Migrations | ❌ Not Started | High | golang-migrate migration files |
 | gRPC/Proto | ❌ Not Started | Medium | Catalog browsing service definition |
 | GCS Client | ❌ Not Started | High | Signed URL, upload/download |
 | LRS Client | ❌ Not Started | High | gRPC client for STA calculation |
 | Main Entry Point | ❌ Not Started | High | `cmd/server/main.go` |
 | Configuration | ❌ Not Started | High | YAML config loading |
+| Repository Tests | ❌ Not Started | High | Unit and integration tests |
 
 ---
 
