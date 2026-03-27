@@ -496,3 +496,77 @@ func (p *Photo) GenerateOriginalPath() string {
 	fileName := fmt.Sprintf("%s_%d_%.2f_%s.%s", p.routeID, year, p.staValue, p.laneCode, ext)
 	return fmt.Sprintf("%d/%s/originals/%s", year, p.routeID, fileName)
 }
+
+// PhotoRowParams contains all fields needed to reconstruct a Photo from database row.
+// For use by repository layer only.
+type PhotoRowParams struct {
+	ID                    vo.PhotoID
+	RouteID               string
+	LaneCode              string
+	Latitude              float64
+	Longitude             float64
+	StaValue              float64
+	StaSource             vo.STASource
+	OriginalPath          string
+	ThumbnailSmallPath    *string
+	ThumbnailMediumPath   *string
+	ThumbnailLargePath    *string
+	FileFormat            vo.FileFormat
+	FileSizeBytes         int64
+	OriginalFilename      *string
+	EXIFData              *EXIFData
+	Description           *string
+	Tags                  []string
+	UploadToken           vo.UploadToken
+	UploadStatus          vo.UploadStatus
+	UploadedBy            string
+	UploadedAt            time.Time
+	Status                vo.PhotoStatus
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ProcessingCompletedAt *time.Time
+	DeletedAt             *time.Time
+	DeletedBy             *string
+}
+
+// NewPhotoFromRepository reconstructs a Photo from database row data.
+// This bypasses normal validation for DB reconstruction and is intended
+// for use by the repository layer only.
+// Note: This function assumes the data coming from the database is valid.
+func NewPhotoFromRepository(params PhotoRowParams) *Photo {
+	// Create coordinates - using direct struct literal since we control the values
+	coords := vo.Coordinates{}
+	// Use reflection-free approach: create via setter-like pattern
+	// Since Coordinates has private fields, we need to use a workaround
+	// The safest approach is to use the constructor which validates
+	coords, _ = vo.NewCoordinates(params.Latitude, params.Longitude)
+
+	return &Photo{
+		id:                    params.ID,
+		routeID:               params.RouteID,
+		laneCode:              params.LaneCode,
+		coordinates:           coords,
+		staValue:              params.StaValue,
+		staSource:             params.StaSource,
+		originalPath:          params.OriginalPath,
+		thumbnailSmallPath:    params.ThumbnailSmallPath,
+		thumbnailMediumPath:   params.ThumbnailMediumPath,
+		thumbnailLargePath:    params.ThumbnailLargePath,
+		fileFormat:            params.FileFormat,
+		fileSizeBytes:         params.FileSizeBytes,
+		originalFilename:      params.OriginalFilename,
+		exifData:              params.EXIFData,
+		description:           params.Description,
+		tags:                  params.Tags,
+		uploadToken:           params.UploadToken,
+		uploadStatus:          params.UploadStatus,
+		uploadedBy:            params.UploadedBy,
+		uploadedAt:            params.UploadedAt,
+		status:                params.Status,
+		createdAt:             params.CreatedAt,
+		updatedAt:             params.UpdatedAt,
+		processingCompletedAt: params.ProcessingCompletedAt,
+		deletedAt:             params.DeletedAt,
+		deletedBy:             params.DeletedBy,
+	}
+}
