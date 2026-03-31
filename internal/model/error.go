@@ -9,8 +9,6 @@ import (
 var (
 	ErrPhotoNotFound       = errors.New("photo not found")
 	ErrPhotoAlreadyDeleted = errors.New("photo already deleted")
-	ErrPhotoProcessing     = errors.New("photo is still processing")
-	ErrPhotoNotReady       = errors.New("photo is not ready for this operation")
 )
 
 // Domain errors - Upload
