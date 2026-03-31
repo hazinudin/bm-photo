@@ -1,9 +1,9 @@
 # Product Requirements Document (PRD)
 # Bina Marga Survey Photo Service
 
-**Version:** 1.3  
+**Version:** 1.4  
 **Date:** March 31, 2026  
-**Status:** In Progress - Simplified Upload Architecture  
+**Status:** In Progress - Service Layer Implemented  
 
 ---
 
@@ -15,7 +15,7 @@
 |-----------|--------|----------|-------|
 | Domain Layer | ✅ Complete | `internal/model/` | VOs, Entities, DTOs, Errors, Constants |
 | Value Objects | ✅ Complete | `internal/model/vo/` | PhotoID, UploadToken, Coordinates, FileFormat, UploadStatus, STASource |
-| Photo Entity | ✅ Complete | `internal/model/entity/photo.go` | Full aggregate root with business methods |
+| Photo Entity | ✅ Complete | `internal/model/entity/photo.go` | Simplified aggregate root |
 | REST DTOs | ✅ Complete | `internal/model/dto/rest/` | Upload, Photo, Browse DTOs with validation |
 | Domain Errors | ✅ Complete | `internal/model/error.go` | All domain errors defined |
 | Domain Constants | ✅ Complete | `internal/model/constants.go` | File limits, pagination, rate limits |
@@ -25,21 +25,21 @@
 | PendingUploadRepository | ✅ Complete | `internal/repository/postgres/pending_upload.go` | Token lifecycle management |
 | APIKeyRepository | ✅ Complete | `internal/repository/postgres/api_key.go` | Hash-based lookup, scopes |
 | AuditLogRepository | ✅ Complete | `internal/repository/postgres/audit_log.go` | Immutable logging |
-| Database Migrations | ✅ Complete | `migrations/` | Initial schema with indexes |
+| Repository Integration Tests | ✅ Complete | `internal/repository/postgres/*_test.go` | 30+ tests |
+| Database Migrations | ✅ Complete | `migrations/` | Initial + simplification migration |
 | pgx v5 Driver | ✅ Complete | `go.mod` | PostgreSQL driver added |
+| Service Layer | ✅ Complete | `internal/service/` | PhotoService, UploadService, AuthService, AuditService |
 
 ### Pending Components
 
 | Component | Status | Priority | Notes |
 |-----------|--------|----------|-------|
 | Handler Layer | ❌ Not Started | High | REST handlers for all endpoints |
-| Service Layer | ❌ Not Started | High | Business logic orchestration |
 | gRPC/Proto | ❌ Not Started | Medium | Catalog browsing service definition |
 | GCS Client | ❌ Not Started | High | Signed URL, upload/download |
 | LRS Client | ❌ Not Started | High | gRPC client for STA calculation |
 | Main Entry Point | ❌ Not Started | High | `cmd/server/main.go` |
 | Configuration | ❌ Not Started | High | YAML config loading |
-| Repository Tests | ✅ Complete | High | Integration tests with PostgreSQL (30 tests) |
 
 ---
 
