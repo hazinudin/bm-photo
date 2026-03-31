@@ -39,7 +39,7 @@
 | LRS Client | ❌ Not Started | High | gRPC client for STA calculation |
 | Main Entry Point | ❌ Not Started | High | `cmd/server/main.go` |
 | Configuration | ❌ Not Started | High | YAML config loading |
-| Repository Tests | ❌ Not Started | High | Unit and integration tests |
+| Repository Tests | ✅ Complete | High | Integration tests with PostgreSQL (30 tests) |
 
 ---
 

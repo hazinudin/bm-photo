@@ -511,12 +511,13 @@ Create under `migrations/`:
 - [x] AuditLogRepository fully implemented
 - [x] Transaction support infrastructure ready
 - [ ] Unit tests with pgxmock
-- [ ] Integration tests with testcontainers
+- [x] Integration tests with PostgreSQL
 - [x] Migration files created for schema
 
 **Current Status:**
 - ✅ Domain layer complete (prerequisite)
 - ✅ Repository interfaces - Complete
 - ✅ Repository implementations - Complete
-- ⏳ Tests - Pending
+- ✅ Integration tests - Complete (30 tests)
+- ⏳ Unit tests with pgxmock - Pending
 - ✅ Migrations - Complete
