@@ -161,52 +161,50 @@ The photo upload process uses a two-phase approach to optimize for performance a
 
 ```
 Phase 1: Get Signed Upload URL (with full metadata)
-─────────────────────────────────────────────────────────────────┐
-Client sends:                                           │
+─────────────────────────────────────────────────────────┐
+Client sends:                                            │
     ├─ file_metadata (filename, content_type, file_size) │
-    └─ photo_attributes (route_id, lane_code,           │
-         latitude, longitude, sta_value,                 │
-         description, tags)                             │
+    └─ photo_attributes (route_id, lane_code)            │
     ↓                                                    │
 Validate API Key                                         │
     ↓                                                    │
 Validate file metadata                                   │
-    ├─ Check file size (max 10MB)                       │
-    ├─ Check content type (JPEG/PNG)                    │
+    ├─ Check file size (max 10MB)                        │
+    ├─ Check content type (JPEG/PNG)                     │
     └─ Validate filename format                          │
     ↓                                                    │
 Validate photo attributes                                │
-    ├─ Validate route_id format                         │
-    ├─ Validate lane_code format (L1-L10, R1-R10)      │
-    ├─ Validate coordinates (lat/lon ranges)            │
+    ├─ Validate route_id format                          │
+    ├─ Validate lane_code format (L1-L10, R1-R10)        │
+    ├─ Validate coordinates (lat/lon ranges)             │ 
     └─ Validate sta_value if provided                    │
     ↓                                                    │
-Check concurrent upload limit for API key                 │
-    └─ Max 10 pending uploads per API key               │
+Check concurrent upload limit for API key                │
+    └─ Max 10 pending uploads per API key                │
     ↓                                                    │
 Generate identifiers and GCS object name                 │
     ├─ Create unique photo_id (UUID)                     │
-    ├─ Generate GCS object name:                        │
-    │   photos/{year}/{route_id}/{route_id}_{year}_     │
-    │   {lane}_{shortuuid}.{ext}                        │
-    ├─ Create upload_token (UUID)                       │
+    ├─ Generate GCS object name:                         │
+    │   photos/{year}/{route_id}/{route_id}_{year}_      │
+    │   {lane}_{shortuuid}.{ext}                         │
+    ├─ Create upload_token (UUID)                        │
     └─ Create signed URL for that object path (15 min)   │
     ↓                                                    │
 Create photo record in database                          │
-    ├─ photo_id, route_id, lane_code                    │
-    ├─ latitude, longitude, sta_value                   │
-    ├─ gcs_object_name, file_format, file_size         │
-    └─ status = 'pending'                               │
+    ├─ photo_id, route_id, lane_code                     │
+    ├─ latitude, longitude, sta_value                    │
+    ├─ gcs_object_name, file_format, file_size           │
+    └─ status = 'pending'                                │
     ↓                                                    │
 Create pending_upload record                             │
-    ├─ upload_token, photo_id                           │
-    ├─ api_key_id, expires_at                           │
-    └─ status = 'pending'                               │
+    ├─ upload_token, photo_id                            │
+    ├─ api_key_id, expires_at                            │
+    └─ status = 'pending'                                │
     ↓                                                    │
 Return to client                                         │
-    ├─ signed_url (for uploading to GCS)               │
-    ├─ upload_token (for confirmation request)          │
-    └─ photo_id (for client reference)                  │
+    ├─ signed_url (for uploading to GCS)                 │
+    ├─ upload_token (for confirmation request)           │
+    └─ photo_id (for client reference)                   │
 ─────────────────────────────────────────────────────────────────┘
 
 Phase 2: Confirm Upload
