@@ -14,7 +14,7 @@
 | Component | Status | Location | Notes |
 |-----------|--------|----------|-------|
 | Domain Layer | ✅ Complete | `internal/model/` | VOs, Entities, DTOs, Errors, Constants |
-| Value Objects | ✅ Complete | `internal/model/vo/` | PhotoID, UploadToken, Coordinates, FileFormat, PhotoStatus, UploadStatus, STASource |
+| Value Objects | ✅ Complete | `internal/model/vo/` | PhotoID, UploadToken, Coordinates, FileFormat, UploadStatus, STASource |
 | Photo Entity | ✅ Complete | `internal/model/entity/photo.go` | Full aggregate root with business methods |
 | REST DTOs | ✅ Complete | `internal/model/dto/rest/` | Upload, Photo, Browse DTOs with validation |
 | Domain Errors | ✅ Complete | `internal/model/error.go` | All domain errors defined |
@@ -70,15 +70,15 @@ This service serves as the authoritative catalog for survey photographs of Indon
 **In Scope (MVP):**
 - Photo upload with metadata (route, lane, coordinates, STA) - REST API only
 - Photo browsing/search by route, STA, and lane - REST API + gRPC API
-- Automatic EXIF metadata extraction
-- Thumbnail generation for preview
-- Integration with existing LRS microservice (gRPC)
 - Google Cloud Storage integration
 - REST API for all client operations
 - gRPC API for internal microservice catalog browsing
 - API Key authentication
 
 **Out of Scope (Future Phases):**
+- Automatic EXIF metadata extraction
+- Thumbnail generation for preview
+- Integration with existing LRS microservice (gRPC) for STA calculation
 - Web-based user interface
 - Mobile applications
 - Machine learning-based photo analysis
@@ -233,182 +233,6 @@ Return confirmation to client                            │
 Note: EXIF extraction, thumbnail generation, and LRS integration
 are deferred to future phases. These features will be triggered
 by other services when coordinate data becomes available.
-```
-Phase 1: Get Signed Upload URL
-──────────────────────────────────────────────────────────┐
-Client requests signed URL                                │
-    ↓                                                    │
-Validate API Key                                         │
-    ↓                                                    │
-Validate file metadata                                   │
-    ├─ Check file size (max 10MB)                       │
-    ├─ Check content type (JPEG/PNG)                     │
-    └─ Validate filename format                          │
-    ↓                                                    │
-Generate upload token and object path                    │
-    ├─ Create unique photo_id (UUID)                     │
-    ├─ Generate GCS object name using format:            │
-    │   photos/{year}/{route_id}/{route_id}_{year}_{lane}_{shortuuid}.{ext}  │
-    ├─ Create upload_token (UUID)                        │
-    └─ Create signed URL for that specific object path   │
-    ↓                                                    │
-Store pending upload metadata                            │
-    ├─ photo_id                                          │
-    ├─ upload_token                                      │
-    ├─ expiry timestamp (15 min)                        │
-    ├─ file metadata (size, type, name)                 │
-    ├─ api_key_id                                        │
-    └─ status = 'pending'                                │
-    ↓                                                    │
-Return to client                                         │
-    ├─ signed_url (for uploading to GCS)                │
-    ├─ upload_token (for completion request)           │
-    └─ photo_id (for client reference)                  │
-    ↓                                                    │
-Client uploads directly to GCS using signed URL         │
-    └─ Signed URL already contains the object path       │
-    └─ Client CANNOT change the object name             │
-       (signature would be invalid)                     │
-    ↓                                                    │
-After successful upload, GCS object exists              │
-    at the exact path specified in signed URL           │
-──────────────────────────────────────────────────────────┘
-
-Phase 2: Complete Photo Upload
-──────────────────────────────────────────────────────────┐
-Client sends completion request                           │
-    ├─ upload_token (NO gcs_object_name needed)          │
-    ├─ route_id                                          │
-    ├─ lane_code                                        │
-    ├─ latitude/longitude                                 │
-    ├─ sta_value (optional)                              │
-    └─ description, tags                                  │
-    ↓                                                    │
-Validate API Key                                         │
-    ↓                                                    │
-Validate upload token                                    │
-    ├─ Look up pending_upload by upload_token            │
-    ├─ Check token exists and not expired                │
-    ├─ Verify token status is 'uploaded'                 │
-    │   (NOT pending, completed, or expired)            │
-    ├─ Verify API key matches token record               │
-    └─ Retrieve gcs_object_name from photo record       │
-    ↓                                                    │
-Verify file exists in GCS                                │
-    └─ Use gcs_object_name from photo record            │
-    ↓                                                    │
-Mark token as 'processing' (prevent reuse)              │
-    ↓                                                    │
-Extract EXIF metadata from uploaded file                 │
-    ├─ Extract timestamp                                 │
-    ├─ Extract device/camera info                        │
-    ├─ Extract embedded GPS (if available)              │
-    └─ Validate against provided coordinates           │
-    ↓                                                    │
-Calculate STA value                                      │
-    ├─ IF sta_value provided: validate with LRS service │
-    └─ ELSE: call LRS service to interpolate           │
-    ↓                                                    │
-Generate thumbnails (background process)                  │
-    ├─ Small: 150x150px                                  │
-    ├─ Medium: 400x400px                                │
-    └─ Large: 800x800px                                  │
-    ↓                                                    │
-Store metadata in PostgreSQL catalog                     │
-    ├─ photo_id (UUID)                                   │
-    ├─ All attributes                                    │
-    ├─ gcs_object_name (from photo record)              │
-    ├─ LRS metadata                                       │
-    ├─ Storage paths (original + thumbnails)             │
-    ├─ EXIF data (JSONB)                                 │
-    ├─ Upload timestamp                                   │
-    └─ Uploader API key reference                        │
-    ↓                                                    │
-Mark token as 'completed'                                │
-    ↓                                                    │
-Return photo_id and metadata to client                   │
-──────────────────────────────────────────────────────────┘
-
-Phase 1: Get Signed Upload URL
-──────────────────────────────────────────────────────────┐
-Client requests signed URL                                │
-    ↓                                                    │
-Validate API Key                                         │
-    ↓                                                    │
-Validate file metadata                                   │
-    ├─ Check file size (max 10MB)                       │
-    ├─ Check content type (JPEG/PNG)                     │
-    └─ Validate filename format                          │
-    ↓                                                    │
-Generate upload token                                    │
-    ├─ Create unique photo_id (UUID)                     │
-    ├─ Generate GCS object name                          │
-    └─ Create short-lived signed URL (15 min)           │
-    ↓                                                    │
-Store pending upload metadata                            │
-    ├─ photo_id                                          │
-    ├─ upload_token                                      │
-    ├─ expiry timestamp                                  │
-    ├─ file metadata                                      │
-    └─ api_key_id                                        │
-    ↓                                                    │
-Return signed URL and upload token to client             │
-    ↓                                                    │
-Client uploads directly to GCS using signed URL         │
-    └─ Progress tracked client-side                      │
-──────────────────────────────────────────────────────────┘
-
-Phase 2: Complete Photo Upload
-──────────────────────────────────────────────────────────┐
-Client sends completion request                           │
-    ├─ upload_token                                      │
-    ├─ route_id                                          │
-    ├─ lane_code                                        │
-    ├─ latitude/longitude                                 │
-    ├─ sta_value (optional)                              │
-    └─ description, tags                                  │
-    ↓                                                    │
-Validate API Key                                         │
-    ↓                                                    │
-Validate upload token                                    │
-    ├─ Check token exists and not expired                │
-    ├─ Verify token status is 'uploaded' (NOT pending, completed, or expired)│
-    └─ Verify API key matches token record               │
-    ↓                                                    │
-Verify file exists in GCS                                │
-    └─ Use gcs_object_name from photo record            │
-    ↓                                                    │
-Mark token as 'processing' (prevent reuse)              │
-    ↓                                                    │
-Extract EXIF metadata from uploaded file                 │
-    ├─ Extract timestamp                                 │
-    ├─ Extract device/camera info                        │
-    ├─ Extract embedded GPS (if available)              │
-    └─ Validate against provided coordinates           │
-    ↓                                                    │
-Calculate STA value                                      │
-    ├─ IF sta_value provided: validate with LRS service │
-    └─ ELSE: call LRS service to interpolate           │
-    ↓                                                    │
-Generate thumbnails (background process)                  │
-    ├─ Small: 150x150px                                  │
-    ├─ Medium: 400x400px                                │
-    └─ Large: 800x800px                                  │
-    ↓                                                    │
-Store metadata in PostgreSQL catalog                     │
-    ├─ photo_id (UUID)                                   │
-    ├─ All attributes                                    │
-    ├─ gcs_object_name (from photo record)              │
-    ├─ LRS metadata                                       │
-    ├─ Storage paths (original + thumbnails)             │
-    ├─ EXIF data (JSONB)                                 │
-    ├─ Upload timestamp                                   │
-    └─ Uploader API key reference                        │
-    ↓                                                    │
-Mark token as 'completed'                                │
-    ↓                                                    │
-Return photo_id and metadata to client                   │
-──────────────────────────────────────────────────────────┘
 ```
 
 #### 2.1.5 Error Handling

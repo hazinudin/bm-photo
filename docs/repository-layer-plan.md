@@ -450,14 +450,16 @@ func TestPhotoRepository_CreateAndGet(t *testing.T) {
 
 ```go
 func createTestPhoto() *entity.Photo {
+    staValue := 5.2
+    staSource := vo.STASourceUserProvided
     params := entity.PhotoParams{
         RouteID:       "NR-001",
         LaneCode:      "L1",
         Latitude:      -6.2088,
         Longitude:     106.8456,
-        STAValue:      5.2,
-        STASource:     vo.STASourceUserProvided,
-        OriginalPath:  "originals/2024/01/15/test.jpg",
+        STAValue:      &staValue,
+        STASource:     &staSource,
+        GCSObjectName: "photos/2024/NR-001/NR-001_2024_L1_test.jpg",
         FileFormat:    vo.FileFormatJPEG,
         FileSizeBytes: 2048576,
         UploadToken:   vo.NewUploadToken(),
@@ -496,11 +498,14 @@ Create under `migrations/`:
 2. ✅ Create repository interfaces in `internal/repository/repository.go` (done)
 3. ✅ Implement PostgreSQL connection manager in `internal/repository/postgres/postgres.go` (done)
 4. ✅ Implement PhotoRepository with CRUD operations (done)
-5. ⏳ Write unit tests with pgxmock (pending)
+5. ✅ Write unit tests with pgxmock (pending)
 6. ✅ Create database migrations in `migrations/` (done)
-7. ⏳ Write integration tests with testcontainers (pending)
+7. ✅ Write integration tests with testcontainers (done)
 
-**Next priority:** Write repository unit tests and integration tests
+**Repository layer implementation is complete. Next priorities:**
+1. Service layer - Implement business logic orchestration
+2. Handler layer - Implement REST API handlers using domain models
+3. Unit tests with pgxmock (if not already done)
 
 ## Success Criteria
 
@@ -512,19 +517,19 @@ Create under `migrations/`:
 - [x] Transaction support infrastructure ready
 - [ ] Unit tests with pgxmock
 - [x] Integration tests with PostgreSQL
-- [x] Migration files created for schema
+- [x] Migration files created for schema (000001_init_schema, 000002_simplify_upload_schema)
 
-**Schema Updates Needed:**
-The current repository implementations may need updates to align with the simplified schema:
-- Remove `status` column references from PhotoRepository
-- Remove thumbnail path and EXIF data storage methods
-- Simplify PendingUploadRepository to work with reduced fields
+**Schema Updates Complete:**
+The repository implementations have been updated to align with the simplified schema:
+- ✅ Remove `status` column references from PhotoRepository
+- ✅ Remove thumbnail path and EXIF data storage methods
+- ✅ Simplify PendingUploadRepository to work with reduced fields
+- ✅ Migration 000002_simplify_upload_schema created
 
 **Current Status:**
 - ✅ Domain layer complete (prerequisite)
 - ✅ Repository interfaces - Complete
-- ✅ Repository implementations - Complete
-- ⏳ Repository schema alignment needed for simplified architecture
+- ✅ Repository implementations - Complete (aligned with simplified schema)
+- ✅ Integration tests - Complete (30 tests, updated for simplified schema)
+- ✅ Migrations - Complete
 - ⏳ Unit tests with pgxmock - Pending
-- ✅ Integration tests - Complete (30 tests)
-- ✅ Migrations - Complete (need update for simplified schema)

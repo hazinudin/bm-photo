@@ -39,7 +39,7 @@ internal/model/
 │   ├── upload_token.go       # Upload token type
 │   ├── sta_source.go         # STA source enum
 │   ├── file_format.go        # File format enum
-│   ├── photo_status.go       # Photo status enum
+│   ├── upload_status.go      # Upload status enum (pending/completed/expired)
 │   └── coordinates.go        # Latitude/Longitude value object
 ├── dto/                      # Data Transfer Objects
 │   ├── rest/                 # REST API DTOs
@@ -285,10 +285,7 @@ Enum for upload token status (tracked in pending_uploads table).
 ```go
 package vo
 
-import (
-    "errors"
-    "strings"
-)
+import "errors"
 
 type UploadStatus string
 
@@ -298,18 +295,14 @@ const (
     UploadStatusExpired   UploadStatus = "expired"
 )
 
-var (
-    ErrInvalidUploadStatus = errors.New("invalid upload status")
-)
+var ErrInvalidUploadStatus = errors.New("invalid upload status")
 
 func ParseUploadStatus(s string) (UploadStatus, error) {
-    status := UploadStatus(strings.ToLower(s))
-    switch status {
-    case UploadStatusPending, UploadStatusCompleted, UploadStatusExpired:
-        return status, nil
-    default:
+    status := UploadStatus(s)
+    if !status.IsValid() {
         return "", ErrInvalidUploadStatus
     }
+    return status, nil
 }
 
 func (s UploadStatus) String() string {
@@ -950,10 +943,8 @@ import (
 
 // Domain errors - Photo
 var (
-    ErrPhotoNotFound         = errors.New("photo not found")
-    ErrPhotoAlreadyDeleted   = errors.New("photo already deleted")
-    ErrPhotoProcessing       = errors.New("photo is still processing")
-    ErrPhotoNotReady         = errors.New("photo is not ready for this operation")
+    ErrPhotoNotFound       = errors.New("photo not found")
+    ErrPhotoAlreadyDeleted = errors.New("photo already deleted")
 )
 
 // Domain errors - Upload
@@ -982,21 +973,23 @@ var (
 
 // Domain errors - External
 var (
-    ErrRouteNotFound    = errors.New("route not found in LRS")
-    ErrLRSUnavailable   = errors.New("LRS service unavailable")
-    ErrStorageError     = errors.New("storage operation failed")
+    ErrRouteNotFound  = errors.New("route not found in LRS")
+    ErrLRSUnavailable = errors.New("LRS service unavailable")
+    ErrStorageError   = errors.New("storage operation failed")
 )
 
-// ValidationError for structured field-level errors
+// ValidationError represents a structured field-level validation error.
 type ValidationError struct {
     Field   string
     Message string
 }
 
+// Error returns the error message in format "field: message".
 func (e *ValidationError) Error() string {
     return fmt.Sprintf("%s: %s", e.Field, e.Message)
 }
 
+// NewValidationError creates a new ValidationError with the given field and message.
 func NewValidationError(field, message string) *ValidationError {
     return &ValidationError{
         Field:   field,
@@ -1004,13 +997,13 @@ func NewValidationError(field, message string) *ValidationError {
     }
 }
 
-// IsValidationError checks if error is a ValidationError
+// IsValidationError checks if error is a ValidationError.
 func IsValidationError(err error) bool {
     var ve *ValidationError
     return errors.As(err, &ve)
 }
 
-// GetValidationError extracts ValidationError if present
+// GetValidationError extracts ValidationError if present.
 func GetValidationError(err error) *ValidationError {
     var ve *ValidationError
     if errors.As(err, &ve) {
