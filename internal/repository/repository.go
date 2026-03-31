@@ -31,14 +31,9 @@ type PhotoRepository interface {
 	// Restore un-deletes a soft-deleted photo.
 	Restore(ctx context.Context, id vo.PhotoID) error
 
-	// UpdateProcessingStatus updates the photo status and thumbnail paths after processing.
-	UpdateProcessingStatus(ctx context.Context, id vo.PhotoID, status vo.PhotoStatus, thumbnailPaths entity.ThumbnailPaths) error
-
-	// UpdateEXIFData updates the EXIF metadata for a photo.
-	UpdateEXIFData(ctx context.Context, id vo.PhotoID, exifData *entity.EXIFData) error
-
 	// UpdateSTA updates the STA value and source for a photo.
-	UpdateSTA(ctx context.Context, id vo.PhotoID, staValue float64, source vo.STASource) error
+	// Both staValue and source can be nil to set the field to NULL.
+	UpdateSTA(ctx context.Context, id vo.PhotoID, staValue *float64, source *vo.STASource) error
 
 	// Browse retrieves a paginated list of photos with optional filters.
 	Browse(ctx context.Context, filter BrowseFilter) (*BrowseResult, error)
@@ -136,9 +131,6 @@ type PendingUploadRepository interface {
 	// GetByPhotoID retrieves a pending upload by the associated photo ID.
 	GetByPhotoID(ctx context.Context, photoID vo.PhotoID) (*PendingUpload, error)
 
-	// MarkAsUploaded marks the upload as successfully uploaded to GCS.
-	MarkAsUploaded(ctx context.Context, token vo.UploadToken) error
-
 	// MarkAsCompleted marks the upload as fully completed (processed).
 	MarkAsCompleted(ctx context.Context, token vo.UploadToken) error
 
@@ -171,23 +163,11 @@ type PendingUpload struct {
 	// APIKeyID is the API key ID that initiated the upload.
 	APIKeyID string
 
-	// Filename is the original filename of the upload.
-	Filename string
-
-	// ContentType is the MIME type of the file.
-	ContentType string
-
-	// FileSizeBytes is the size of the file in bytes.
-	FileSizeBytes int64
-
 	// CreatedAt is when the upload token was created.
 	CreatedAt time.Time
 
 	// ExpiresAt is when the upload token expires.
 	ExpiresAt time.Time
-
-	// CompletedAt is when the upload was completed (if applicable).
-	CompletedAt *time.Time
 
 	// Status is the current upload status.
 	Status vo.UploadStatus

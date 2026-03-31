@@ -24,16 +24,12 @@ func NewPendingUploadRepository(db *PostgresDB) *PendingUploadRepository {
 
 // pendingUploadRow mirrors the DB schema for scanning
 type pendingUploadRow struct {
-	UploadToken   string
-	PhotoID       string
-	APIKeyID      string
-	Filename      string
-	ContentType   string
-	FileSizeBytes int64
-	CreatedAt     time.Time
-	ExpiresAt     time.Time
-	CompletedAt   *time.Time
-	Status        string
+	UploadToken string
+	PhotoID     string
+	APIKeyID    string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
+	Status      string
 }
 
 func (r *pendingUploadRow) toPendingUpload() (*repository.PendingUpload, error) {
@@ -53,16 +49,12 @@ func (r *pendingUploadRow) toPendingUpload() (*repository.PendingUpload, error) 
 	}
 
 	return &repository.PendingUpload{
-		UploadToken:   uploadToken,
-		PhotoID:       photoID,
-		APIKeyID:      r.APIKeyID,
-		Filename:      r.Filename,
-		ContentType:   r.ContentType,
-		FileSizeBytes: r.FileSizeBytes,
-		CreatedAt:     r.CreatedAt,
-		ExpiresAt:     r.ExpiresAt,
-		CompletedAt:   r.CompletedAt,
-		Status:        uploadStatus,
+		UploadToken: uploadToken,
+		PhotoID:     photoID,
+		APIKeyID:    r.APIKeyID,
+		CreatedAt:   r.CreatedAt,
+		ExpiresAt:   r.ExpiresAt,
+		Status:      uploadStatus,
 	}, nil
 }
 
@@ -70,23 +62,18 @@ func (r *PendingUploadRepository) Create(ctx context.Context, upload *repository
 	query := `
 		INSERT INTO pending_uploads (
 			upload_token, photo_id, api_key_id,
-			file_name, content_type, file_size_bytes,
 			created_at, expires_at,
 			status
 		) VALUES (
 			$1, $2, $3,
-			$4, $5, $6,
-			$7, $8,
-			$9
+			$4, $5,
+			$6
 		)`
 
 	_, err := r.db.Pool().Exec(ctx, query,
 		upload.UploadToken.String(),
 		upload.PhotoID.String(),
 		upload.APIKeyID,
-		upload.Filename,
-		upload.ContentType,
-		upload.FileSizeBytes,
 		upload.CreatedAt,
 		upload.ExpiresAt,
 		upload.Status.String(),
@@ -102,9 +89,8 @@ func (r *PendingUploadRepository) Create(ctx context.Context, upload *repository
 func (r *PendingUploadRepository) GetByToken(ctx context.Context, token vo.UploadToken) (*repository.PendingUpload, error) {
 	query := `
 		SELECT upload_token, photo_id, api_key_id,
-			file_name, content_type, file_size_bytes,
 			created_at, expires_at,
-			completed_at, status
+			status
 		FROM pending_uploads
 		WHERE upload_token = $1`
 
@@ -116,9 +102,8 @@ func (r *PendingUploadRepository) GetByToken(ctx context.Context, token vo.Uploa
 func (r *PendingUploadRepository) GetByPhotoID(ctx context.Context, photoID vo.PhotoID) (*repository.PendingUpload, error) {
 	query := `
 		SELECT upload_token, photo_id, api_key_id,
-			file_name, content_type, file_size_bytes,
 			created_at, expires_at,
-			completed_at, status
+			status
 		FROM pending_uploads
 		WHERE photo_id = $1`
 
@@ -127,32 +112,13 @@ func (r *PendingUploadRepository) GetByPhotoID(ctx context.Context, photoID vo.P
 	return r.scanPendingUpload(row)
 }
 
-func (r *PendingUploadRepository) MarkAsUploaded(ctx context.Context, token vo.UploadToken) error {
-	query := `
-		UPDATE pending_uploads SET
-			status = $2
-		WHERE upload_token = $1 AND status = 'pending'`
-
-	result, err := r.db.Pool().Exec(ctx, query, token.String(), vo.UploadStatusUploaded.String())
-	if err != nil {
-		return fmt.Errorf("failed to mark upload as uploaded: %w", err)
-	}
-
-	if result.RowsAffected() == 0 {
-		return repository.ErrTokenNotFound
-	}
-
-	return nil
-}
-
 func (r *PendingUploadRepository) MarkAsCompleted(ctx context.Context, token vo.UploadToken) error {
 	query := `
 		UPDATE pending_uploads SET
-			status = $2,
-			completed_at = $3
+			status = $2
 		WHERE upload_token = $1`
 
-	result, err := r.db.Pool().Exec(ctx, query, token.String(), vo.UploadStatusCompleted.String(), time.Now())
+	result, err := r.db.Pool().Exec(ctx, query, token.String(), vo.UploadStatusCompleted.String())
 	if err != nil {
 		return fmt.Errorf("failed to mark upload as completed: %w", err)
 	}
@@ -207,7 +173,7 @@ func (r *PendingUploadRepository) DeleteExpired(ctx context.Context, before time
 func (r *PendingUploadRepository) CountActiveByAPIKey(ctx context.Context, apiKeyID string) (int64, error) {
 	query := `
 		SELECT COUNT(*) FROM pending_uploads
-		WHERE api_key_id = $1 AND status IN ('pending', 'uploaded')`
+		WHERE api_key_id = $1 AND status = 'pending'`
 
 	var count int64
 	if err := r.db.Pool().QueryRow(ctx, query, apiKeyID).Scan(&count); err != nil {
@@ -220,9 +186,8 @@ func (r *PendingUploadRepository) CountActiveByAPIKey(ctx context.Context, apiKe
 func (r *PendingUploadRepository) GetExpired(ctx context.Context, before time.Time) ([]*repository.PendingUpload, error) {
 	query := `
 		SELECT upload_token, photo_id, api_key_id,
-			file_name, content_type, file_size_bytes,
 			created_at, expires_at,
-			completed_at, status
+			status
 		FROM pending_uploads
 		WHERE expires_at < $1 AND status = 'pending'
 		ORDER BY created_at`
@@ -242,12 +207,8 @@ func (r *PendingUploadRepository) scanPendingUpload(row pgx.Row) (*repository.Pe
 		&p.UploadToken,
 		&p.PhotoID,
 		&p.APIKeyID,
-		&p.Filename,
-		&p.ContentType,
-		&p.FileSizeBytes,
 		&p.CreatedAt,
 		&p.ExpiresAt,
-		&p.CompletedAt,
 		&p.Status,
 	)
 
@@ -270,12 +231,8 @@ func (r *PendingUploadRepository) scanPendingUploads(rows pgx.Rows) ([]*reposito
 			&p.UploadToken,
 			&p.PhotoID,
 			&p.APIKeyID,
-			&p.Filename,
-			&p.ContentType,
-			&p.FileSizeBytes,
 			&p.CreatedAt,
 			&p.ExpiresAt,
-			&p.CompletedAt,
 			&p.Status,
 		)
 

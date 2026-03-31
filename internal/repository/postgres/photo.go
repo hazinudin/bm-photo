@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -27,45 +26,30 @@ func NewPhotoRepository(db *PostgresDB) *PhotoRepository {
 
 // photoRow mirrors the DB schema for scanning
 type photoRow struct {
-	PhotoID               string
-	RouteID               string
-	LaneCode              string
-	Latitude              float64
-	Longitude             float64
-	StaValue              float64
-	StaSource             string
-	GCSObjectName         string
-	ThumbnailSmallPath    *string
-	ThumbnailMediumPath   *string
-	ThumbnailLargePath    *string
-	FileFormat            string
-	FileSizeBytes         int64
-	OriginalFilename      *string
-	ExifData              []byte // JSON
-	Description           *string
-	Tags                  []string
-	UploadToken           string
-	UploadStatus          string
-	UploadedBy            string
-	UploadedAt            time.Time
-	Status                string
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-	ProcessingCompletedAt *time.Time
-	DeletedAt             *time.Time
-	DeletedBy             *string
+	PhotoID          string
+	RouteID          string
+	LaneCode         string
+	Latitude         float64
+	Longitude        float64
+	StaValue         *float64 // nullable
+	StaSource        *string  // nullable
+	GCSObjectName    string
+	FileFormat       string
+	FileSizeBytes    int64
+	OriginalFilename *string
+	Description      *string
+	Tags             []string
+	UploadToken      string
+	UploadStatus     string
+	UploadedBy       string
+	UploadedAt       time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	DeletedAt        *time.Time
+	DeletedBy        *string
 }
 
 func (r *photoRow) toEntity() (*entity.Photo, error) {
-	var exifData *entity.EXIFData
-	if r.ExifData != nil {
-		exif := &entity.EXIFData{}
-		if err := json.Unmarshal(r.ExifData, exif); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal EXIF data: %w", err)
-		}
-		exifData = exif
-	}
-
 	// Parse enums
 	photoID, err := vo.ParsePhotoID(r.PhotoID)
 	if err != nil {
@@ -87,97 +71,84 @@ func (r *photoRow) toEntity() (*entity.Photo, error) {
 		return nil, fmt.Errorf("invalid upload status: %w", err)
 	}
 
-	photoStatus, err := vo.ParsePhotoStatus(r.Status)
-	if err != nil {
-		return nil, fmt.Errorf("invalid photo status: %w", err)
-	}
-
-	staSource, err := vo.ParseSTASource(r.StaSource)
-	if err != nil {
-		return nil, fmt.Errorf("invalid STA source: %w", err)
+	var staSource *vo.STASource
+	if r.StaSource != nil {
+		source, err := vo.ParseSTASource(*r.StaSource)
+		if err != nil {
+			return nil, fmt.Errorf("invalid STA source: %w", err)
+		}
+		staSource = &source
 	}
 
 	params := entity.PhotoRowParams{
-		ID:                    photoID,
-		RouteID:               r.RouteID,
-		LaneCode:              r.LaneCode,
-		Latitude:              r.Latitude,
-		Longitude:             r.Longitude,
-		StaValue:              r.StaValue,
-		StaSource:             staSource,
-		GCSObjectName:         r.GCSObjectName,
-		ThumbnailSmallPath:    r.ThumbnailSmallPath,
-		ThumbnailMediumPath:   r.ThumbnailMediumPath,
-		ThumbnailLargePath:    r.ThumbnailLargePath,
-		FileFormat:            fileFormat,
-		FileSizeBytes:         r.FileSizeBytes,
-		OriginalFilename:      r.OriginalFilename,
-		EXIFData:              exifData,
-		Description:           r.Description,
-		Tags:                  r.Tags,
-		UploadToken:           uploadToken,
-		UploadStatus:          uploadStatus,
-		UploadedBy:            r.UploadedBy,
-		UploadedAt:            r.UploadedAt,
-		Status:                photoStatus,
-		CreatedAt:             r.CreatedAt,
-		UpdatedAt:             r.UpdatedAt,
-		ProcessingCompletedAt: r.ProcessingCompletedAt,
-		DeletedAt:             r.DeletedAt,
-		DeletedBy:             r.DeletedBy,
+		ID:               photoID,
+		RouteID:          r.RouteID,
+		LaneCode:         r.LaneCode,
+		Latitude:         r.Latitude,
+		Longitude:        r.Longitude,
+		StaValue:         r.StaValue,
+		StaSource:        staSource,
+		GCSObjectName:    r.GCSObjectName,
+		FileFormat:       fileFormat,
+		FileSizeBytes:    r.FileSizeBytes,
+		OriginalFilename: r.OriginalFilename,
+		Description:      r.Description,
+		Tags:             r.Tags,
+		UploadToken:      uploadToken,
+		UploadStatus:     uploadStatus,
+		UploadedBy:       r.UploadedBy,
+		UploadedAt:       r.UploadedAt,
+		CreatedAt:        r.CreatedAt,
+		UpdatedAt:        r.UpdatedAt,
+		DeletedAt:        r.DeletedAt,
+		DeletedBy:        r.DeletedBy,
 	}
 
 	return entity.NewPhotoFromRepository(params), nil
 }
 
 func (r *PhotoRepository) Create(ctx context.Context, photo *entity.Photo) error {
-	exifDataJSON, err := json.Marshal(photo.EXIFData())
-	if err != nil {
-		return fmt.Errorf("failed to marshal EXIF data: %w", err)
-	}
-
 	query := `
 		INSERT INTO photos (
 			photo_id, route_id, lane_code, latitude, longitude,
 			sta_value, sta_source, gcs_object_name,
-			thumbnail_small_path, thumbnail_medium_path, thumbnail_large_path,
 			file_format, file_size_bytes, original_filename,
-			exif_data, description, tags,
+			description, tags,
 			upload_token, upload_status, uploaded_by, uploaded_at,
-			status, created_at, updated_at
+			created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6, $7, $8,
 			$9, $10, $11,
-			$12, $13, $14,
-			$15, $16, $17,
-			$18, $19, $20, $21,
-			$22, $23, $24
+			$12, $13,
+			$14, $15, $16, $17,
+			$18, $19
 		)`
 
-	_, err = r.db.Pool().Exec(ctx, query,
+	var staSourceStr *string
+	if photo.STASource() != nil {
+		str := photo.STASource().String()
+		staSourceStr = &str
+	}
+
+	_, err := r.db.Pool().Exec(ctx, query,
 		photo.ID().String(),
 		photo.RouteID(),
 		photo.LaneCode(),
 		photo.Latitude(),
 		photo.Longitude(),
 		photo.STAValue(),
-		photo.STASource().String(),
+		staSourceStr,
 		photo.GCSObjectName(),
-		photo.ThumbnailSmallPath(),
-		photo.ThumbnailMediumPath(),
-		photo.ThumbnailLargePath(),
 		photo.FileFormat().String(),
 		photo.FileSizeBytes(),
 		photo.OriginalFilename(),
-		exifDataJSON,
 		photo.Description(),
 		photo.Tags(),
 		photo.UploadToken().String(),
 		photo.UploadStatus().String(),
 		photo.UploadedBy(),
 		photo.UploadedAt(),
-		photo.Status().String(),
 		photo.CreatedAt(),
 		photo.UpdatedAt(),
 	)
@@ -193,12 +164,11 @@ func (r *PhotoRepository) GetByID(ctx context.Context, id vo.PhotoID) (*entity.P
 	query := `
 		SELECT photo_id, route_id, lane_code, latitude, longitude,
 			sta_value, sta_source, gcs_object_name,
-			thumbnail_small_path, thumbnail_medium_path, thumbnail_large_path,
 			file_format, file_size_bytes, original_filename,
-			exif_data, description, tags,
+			description, tags,
 			upload_token, upload_status, uploaded_by, uploaded_at,
-			status, created_at, updated_at,
-			processing_completed_at, deleted_at, deleted_by
+			created_at, updated_at,
+			deleted_at, deleted_by
 		FROM photos
 		WHERE photo_id = $1 AND deleted_at IS NULL`
 
@@ -211,12 +181,11 @@ func (r *PhotoRepository) GetByUploadToken(ctx context.Context, token vo.UploadT
 	query := `
 		SELECT photo_id, route_id, lane_code, latitude, longitude,
 			sta_value, sta_source, gcs_object_name,
-			thumbnail_small_path, thumbnail_medium_path, thumbnail_large_path,
 			file_format, file_size_bytes, original_filename,
-			exif_data, description, tags,
+			description, tags,
 			upload_token, upload_status, uploaded_by, uploaded_at,
-			status, created_at, updated_at,
-			processing_completed_at, deleted_at, deleted_by
+			created_at, updated_at,
+			deleted_at, deleted_by
 		FROM photos
 		WHERE upload_token = $1`
 
@@ -234,15 +203,16 @@ func (r *PhotoRepository) Update(ctx context.Context, photo *entity.Photo) error
 			longitude = $5,
 			sta_value = $6,
 			sta_source = $7,
-			thumbnail_small_path = $8,
-			thumbnail_medium_path = $9,
-			thumbnail_large_path = $10,
-			description = $11,
-			tags = $12,
-			status = $13,
-			updated_at = $14,
-			processing_completed_at = $15
+			description = $8,
+			tags = $9,
+			updated_at = $10
 		WHERE photo_id = $1 AND deleted_at IS NULL`
+
+	var staSourceStr *string
+	if photo.STASource() != nil {
+		str := photo.STASource().String()
+		staSourceStr = &str
+	}
 
 	result, err := r.db.Pool().Exec(ctx, query,
 		photo.ID().String(),
@@ -251,15 +221,10 @@ func (r *PhotoRepository) Update(ctx context.Context, photo *entity.Photo) error
 		photo.Latitude(),
 		photo.Longitude(),
 		photo.STAValue(),
-		photo.STASource().String(),
-		photo.ThumbnailSmallPath(),
-		photo.ThumbnailMediumPath(),
-		photo.ThumbnailLargePath(),
+		staSourceStr,
 		photo.Description(),
 		photo.Tags(),
-		photo.Status().String(),
 		time.Now(),
-		photo.ProcessingCompletedAt(),
 	)
 
 	if err != nil {
@@ -328,67 +293,7 @@ func (r *PhotoRepository) Restore(ctx context.Context, id vo.PhotoID) error {
 	return nil
 }
 
-func (r *PhotoRepository) UpdateProcessingStatus(ctx context.Context, id vo.PhotoID, status vo.PhotoStatus, thumbnailPaths entity.ThumbnailPaths) error {
-	smallPath := thumbnailPaths.Small
-	mediumPath := thumbnailPaths.Medium
-	largePath := thumbnailPaths.Large
-
-	query := `
-		UPDATE photos SET
-			status = $2,
-			thumbnail_small_path = $3,
-			thumbnail_medium_path = $4,
-			thumbnail_large_path = $5,
-			processing_completed_at = $6,
-			updated_at = $7
-		WHERE photo_id = $1 AND deleted_at IS NULL`
-
-	result, err := r.db.Pool().Exec(ctx, query,
-		id.String(),
-		status.String(),
-		smallPath,
-		mediumPath,
-		largePath,
-		time.Now(),
-		time.Now(),
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to update processing status: %w", err)
-	}
-
-	if result.RowsAffected() == 0 {
-		return repository.ErrPhotoNotFound
-	}
-
-	return nil
-}
-
-func (r *PhotoRepository) UpdateEXIFData(ctx context.Context, id vo.PhotoID, exifData *entity.EXIFData) error {
-	exifDataJSON, err := json.Marshal(exifData)
-	if err != nil {
-		return fmt.Errorf("failed to marshal EXIF data: %w", err)
-	}
-
-	query := `
-		UPDATE photos SET
-			exif_data = $2,
-			updated_at = $3
-		WHERE photo_id = $1 AND deleted_at IS NULL`
-
-	result, err := r.db.Pool().Exec(ctx, query, id.String(), exifDataJSON, time.Now())
-	if err != nil {
-		return fmt.Errorf("failed to update EXIF data: %w", err)
-	}
-
-	if result.RowsAffected() == 0 {
-		return repository.ErrPhotoNotFound
-	}
-
-	return nil
-}
-
-func (r *PhotoRepository) UpdateSTA(ctx context.Context, id vo.PhotoID, staValue float64, source vo.STASource) error {
+func (r *PhotoRepository) UpdateSTA(ctx context.Context, id vo.PhotoID, staValue *float64, source *vo.STASource) error {
 	query := `
 		UPDATE photos SET
 			sta_value = $2,
@@ -396,7 +301,13 @@ func (r *PhotoRepository) UpdateSTA(ctx context.Context, id vo.PhotoID, staValue
 			updated_at = $4
 		WHERE photo_id = $1 AND deleted_at IS NULL`
 
-	result, err := r.db.Pool().Exec(ctx, query, id.String(), staValue, source.String(), time.Now())
+	var staSourceStr *string
+	if source != nil {
+		str := source.String()
+		staSourceStr = &str
+	}
+
+	result, err := r.db.Pool().Exec(ctx, query, id.String(), staValue, staSourceStr, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to update STA: %w", err)
 	}
@@ -462,12 +373,11 @@ func (r *PhotoRepository) Browse(ctx context.Context, filter repository.BrowseFi
 	query := fmt.Sprintf(`
 		SELECT photo_id, route_id, lane_code, latitude, longitude,
 			sta_value, sta_source, gcs_object_name,
-			thumbnail_small_path, thumbnail_medium_path, thumbnail_large_path,
 			file_format, file_size_bytes, original_filename,
-			exif_data, description, tags,
+			description, tags,
 			upload_token, upload_status, uploaded_by, uploaded_at,
-			status, created_at, updated_at,
-			processing_completed_at, deleted_at, deleted_by
+			created_at, updated_at,
+			deleted_at, deleted_by
 		FROM photos
 		%s
 		ORDER BY created_at DESC
@@ -567,15 +477,6 @@ func (r *PhotoRepository) Search(ctx context.Context, filter repository.SearchFi
 		argIndex++
 	}
 
-	// EXIF GPS filter
-	if filter.HasEXIFGPS != nil {
-		if *filter.HasEXIFGPS {
-			whereClause += " AND exif_data IS NOT NULL AND exif_data->>'gps_latitude' IS NOT NULL"
-		} else {
-			whereClause += " AND (exif_data IS NULL OR exif_data->>'gps_latitude' IS NULL)"
-		}
-	}
-
 	// Count total
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM photos %s", whereClause)
 	var totalCount int64
@@ -587,12 +488,11 @@ func (r *PhotoRepository) Search(ctx context.Context, filter repository.SearchFi
 	query := fmt.Sprintf(`
 		SELECT photo_id, route_id, lane_code, latitude, longitude,
 			sta_value, sta_source, gcs_object_name,
-			thumbnail_small_path, thumbnail_medium_path, thumbnail_large_path,
 			file_format, file_size_bytes, original_filename,
-			exif_data, description, tags,
+			description, tags,
 			upload_token, upload_status, uploaded_by, uploaded_at,
-			status, created_at, updated_at,
-			processing_completed_at, deleted_at, deleted_by
+			created_at, updated_at,
+			deleted_at, deleted_by
 		FROM photos
 		%s
 		ORDER BY created_at DESC
@@ -642,23 +542,17 @@ func (r *PhotoRepository) scanPhoto(row pgx.Row) (*entity.Photo, error) {
 		&p.StaValue,
 		&p.StaSource,
 		&p.GCSObjectName,
-		&p.ThumbnailSmallPath,
-		&p.ThumbnailMediumPath,
-		&p.ThumbnailLargePath,
 		&p.FileFormat,
 		&p.FileSizeBytes,
 		&p.OriginalFilename,
-		&p.ExifData,
 		&p.Description,
 		&p.Tags,
 		&p.UploadToken,
 		&p.UploadStatus,
 		&p.UploadedBy,
 		&p.UploadedAt,
-		&p.Status,
 		&p.CreatedAt,
 		&p.UpdatedAt,
-		&p.ProcessingCompletedAt,
 		&p.DeletedAt,
 		&p.DeletedBy,
 	)
@@ -687,23 +581,17 @@ func (r *PhotoRepository) scanPhotos(rows pgx.Rows) ([]*entity.Photo, error) {
 			&p.StaValue,
 			&p.StaSource,
 			&p.GCSObjectName,
-			&p.ThumbnailSmallPath,
-			&p.ThumbnailMediumPath,
-			&p.ThumbnailLargePath,
 			&p.FileFormat,
 			&p.FileSizeBytes,
 			&p.OriginalFilename,
-			&p.ExifData,
 			&p.Description,
 			&p.Tags,
 			&p.UploadToken,
 			&p.UploadStatus,
 			&p.UploadedBy,
 			&p.UploadedAt,
-			&p.Status,
 			&p.CreatedAt,
 			&p.UpdatedAt,
-			&p.ProcessingCompletedAt,
 			&p.DeletedAt,
 			&p.DeletedBy,
 		)
