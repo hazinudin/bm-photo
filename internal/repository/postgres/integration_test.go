@@ -74,26 +74,20 @@ func runMigrations(ctx context.Context, db *PostgresDB) error {
 		lane_code VARCHAR(10) NOT NULL,
 		latitude DOUBLE PRECISION NOT NULL,
 		longitude DOUBLE PRECISION NOT NULL,
-		sta_value DOUBLE PRECISION NOT NULL,
-		sta_source VARCHAR(20) NOT NULL DEFAULT 'user_provided',
+		sta_value DOUBLE PRECISION,
+		sta_source VARCHAR(20),
 		gcs_object_name VARCHAR(500) NOT NULL,
-		thumbnail_small_path VARCHAR(500),
-		thumbnail_medium_path VARCHAR(500),
-		thumbnail_large_path VARCHAR(500),
 		file_format VARCHAR(10) NOT NULL,
 		file_size_bytes BIGINT NOT NULL,
 		original_filename VARCHAR(255),
-		exif_data JSONB,
 		description TEXT,
 		tags JSONB DEFAULT '[]',
 		upload_token UUID NOT NULL UNIQUE,
 		upload_status VARCHAR(20) NOT NULL DEFAULT 'pending',
 		uploaded_by VARCHAR(100) NOT NULL,
 		uploaded_at TIMESTAMP WITH TIME ZONE NOT NULL,
-		status VARCHAR(20) NOT NULL DEFAULT 'processing',
 		created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-		processing_completed_at TIMESTAMP WITH TIME ZONE,
 		deleted_at TIMESTAMP WITH TIME ZONE,
 		deleted_by VARCHAR(100)
 	);
@@ -102,12 +96,8 @@ func runMigrations(ctx context.Context, db *PostgresDB) error {
 		upload_token UUID PRIMARY KEY,
 		photo_id UUID NOT NULL REFERENCES photos(photo_id),
 		api_key_id VARCHAR(100) NOT NULL,
-		file_name VARCHAR(255) NOT NULL,
-		content_type VARCHAR(100) NOT NULL,
-		file_size_bytes BIGINT NOT NULL,
 		created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 		expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-		completed_at TIMESTAMP WITH TIME ZONE,
 		status VARCHAR(20) NOT NULL DEFAULT 'pending'
 	);
 
@@ -281,11 +271,6 @@ func (b *PendingUploadBuilder) WithAPIKeyID(apiKeyID string) *PendingUploadBuild
 	return b
 }
 
-func (b *PendingUploadBuilder) WithFilename(filename string) *PendingUploadBuilder {
-	b.upload.Filename = filename
-	return b
-}
-
 func (b *PendingUploadBuilder) WithStatus(status vo.UploadStatus) *PendingUploadBuilder {
 	b.upload.Status = status
 	return b
@@ -299,15 +284,12 @@ func (b *PendingUploadBuilder) WithExpiresIn(duration time.Duration) *PendingUpl
 func (b *PendingUploadBuilder) Build() *repository.PendingUpload {
 	if b.upload == nil {
 		b.upload = &repository.PendingUpload{
-			UploadToken:   vo.NewUploadToken(),
-			PhotoID:       vo.NewPhotoID(),
-			APIKeyID:      "test-api-key",
-			Filename:      "test.jpg",
-			ContentType:   "image/jpeg",
-			FileSizeBytes: 1024,
-			CreatedAt:     time.Now(),
-			ExpiresAt:     time.Now().Add(15 * time.Minute),
-			Status:        vo.UploadStatusPending,
+			UploadToken: vo.NewUploadToken(),
+			PhotoID:     vo.NewPhotoID(),
+			APIKeyID:    "test-api-key",
+			CreatedAt:   time.Now(),
+			ExpiresAt:   time.Now().Add(15 * time.Minute),
+			Status:      vo.UploadStatusPending,
 		}
 	}
 	return b.upload

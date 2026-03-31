@@ -36,15 +36,12 @@ func TestPendingUploadRepository_CreateAndGetByToken(t *testing.T) {
 	require.NoError(t, err)
 
 	upload := &repository.PendingUpload{
-		UploadToken:   vo.NewUploadToken(),
-		PhotoID:       photo.ID(),
-		APIKeyID:      "test-api-key",
-		Filename:      "test.jpg",
-		ContentType:   "image/jpeg",
-		FileSizeBytes: 1024,
-		CreatedAt:     time.Now(),
-		ExpiresAt:     time.Now().Add(15 * time.Minute),
-		Status:        vo.UploadStatusPending,
+		UploadToken: vo.NewUploadToken(),
+		PhotoID:     photo.ID(),
+		APIKeyID:    "test-api-key",
+		CreatedAt:   time.Now(),
+		ExpiresAt:   time.Now().Add(15 * time.Minute),
+		Status:      vo.UploadStatusPending,
 	}
 
 	err = uploadRepo.Create(ctx, upload)
@@ -53,7 +50,6 @@ func TestPendingUploadRepository_CreateAndGetByToken(t *testing.T) {
 	retrieved, err := uploadRepo.GetByToken(ctx, upload.UploadToken)
 	require.NoError(t, err)
 	assert.Equal(t, upload.PhotoID, retrieved.PhotoID)
-	assert.Equal(t, upload.Filename, retrieved.Filename)
 	assert.Equal(t, vo.UploadStatusPending, retrieved.Status)
 }
 
@@ -79,15 +75,12 @@ func TestPendingUploadRepository_GetByPhotoID(t *testing.T) {
 	require.NoError(t, err)
 
 	upload := &repository.PendingUpload{
-		UploadToken:   vo.NewUploadToken(),
-		PhotoID:       photo.ID(),
-		APIKeyID:      "test-api-key",
-		Filename:      "test.jpg",
-		ContentType:   "image/jpeg",
-		FileSizeBytes: 1024,
-		CreatedAt:     time.Now(),
-		ExpiresAt:     time.Now().Add(15 * time.Minute),
-		Status:        vo.UploadStatusPending,
+		UploadToken: vo.NewUploadToken(),
+		PhotoID:     photo.ID(),
+		APIKeyID:    "test-api-key",
+		CreatedAt:   time.Now(),
+		ExpiresAt:   time.Now().Add(15 * time.Minute),
+		Status:      vo.UploadStatusPending,
 	}
 
 	err = uploadRepo.Create(ctx, upload)
@@ -117,50 +110,6 @@ func TestPendingUploadRepository_GetByToken_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, repository.ErrTokenNotFound)
 }
 
-func TestPendingUploadRepository_MarkAsUploaded(t *testing.T) {
-	ctx := context.Background()
-	db, cleanup, err := setupTestDB(ctx)
-	require.NoError(t, err)
-	defer cleanup()
-
-	err = runMigrations(ctx, db)
-	require.NoError(t, err)
-
-	err = cleanupTables(ctx, db)
-	require.NoError(t, err)
-
-	photoRepo := NewPhotoRepository(db)
-	uploadRepo := NewPendingUploadRepository(db)
-
-	photo := NewPhotoBuilder().
-		WithRouteID("NR-001").
-		Build()
-	err = photoRepo.Create(ctx, photo)
-	require.NoError(t, err)
-
-	upload := &repository.PendingUpload{
-		UploadToken:   vo.NewUploadToken(),
-		PhotoID:       photo.ID(),
-		APIKeyID:      "test-api-key",
-		Filename:      "test.jpg",
-		ContentType:   "image/jpeg",
-		FileSizeBytes: 1024,
-		CreatedAt:     time.Now(),
-		ExpiresAt:     time.Now().Add(15 * time.Minute),
-		Status:        vo.UploadStatusPending,
-	}
-
-	err = uploadRepo.Create(ctx, upload)
-	require.NoError(t, err)
-
-	err = uploadRepo.MarkAsUploaded(ctx, upload.UploadToken)
-	require.NoError(t, err)
-
-	retrieved, err := uploadRepo.GetByToken(ctx, upload.UploadToken)
-	require.NoError(t, err)
-	assert.Equal(t, vo.UploadStatusUploaded, retrieved.Status)
-}
-
 func TestPendingUploadRepository_MarkAsCompleted(t *testing.T) {
 	ctx := context.Background()
 	db, cleanup, err := setupTestDB(ctx)
@@ -183,21 +132,15 @@ func TestPendingUploadRepository_MarkAsCompleted(t *testing.T) {
 	require.NoError(t, err)
 
 	upload := &repository.PendingUpload{
-		UploadToken:   vo.NewUploadToken(),
-		PhotoID:       photo.ID(),
-		APIKeyID:      "test-api-key",
-		Filename:      "test.jpg",
-		ContentType:   "image/jpeg",
-		FileSizeBytes: 1024,
-		CreatedAt:     time.Now(),
-		ExpiresAt:     time.Now().Add(15 * time.Minute),
-		Status:        vo.UploadStatusPending,
+		UploadToken: vo.NewUploadToken(),
+		PhotoID:     photo.ID(),
+		APIKeyID:    "test-api-key",
+		CreatedAt:   time.Now(),
+		ExpiresAt:   time.Now().Add(15 * time.Minute),
+		Status:      vo.UploadStatusPending,
 	}
 
 	err = uploadRepo.Create(ctx, upload)
-	require.NoError(t, err)
-
-	err = uploadRepo.MarkAsUploaded(ctx, upload.UploadToken)
 	require.NoError(t, err)
 
 	err = uploadRepo.MarkAsCompleted(ctx, upload.UploadToken)
@@ -206,7 +149,6 @@ func TestPendingUploadRepository_MarkAsCompleted(t *testing.T) {
 	retrieved, err := uploadRepo.GetByToken(ctx, upload.UploadToken)
 	require.NoError(t, err)
 	assert.Equal(t, vo.UploadStatusCompleted, retrieved.Status)
-	assert.NotNil(t, retrieved.CompletedAt)
 }
 
 func TestPendingUploadRepository_MarkAsExpired(t *testing.T) {
@@ -231,15 +173,12 @@ func TestPendingUploadRepository_MarkAsExpired(t *testing.T) {
 	require.NoError(t, err)
 
 	upload := &repository.PendingUpload{
-		UploadToken:   vo.NewUploadToken(),
-		PhotoID:       photo.ID(),
-		APIKeyID:      "test-api-key",
-		Filename:      "test.jpg",
-		ContentType:   "image/jpeg",
-		FileSizeBytes: 1024,
-		CreatedAt:     time.Now().Add(-30 * time.Minute),
-		ExpiresAt:     time.Now().Add(-1 * time.Hour),
-		Status:        vo.UploadStatusPending,
+		UploadToken: vo.NewUploadToken(),
+		PhotoID:     photo.ID(),
+		APIKeyID:    "test-api-key",
+		CreatedAt:   time.Now().Add(-30 * time.Minute),
+		ExpiresAt:   time.Now().Add(-1 * time.Hour),
+		Status:      vo.UploadStatusPending,
 	}
 
 	err = uploadRepo.Create(ctx, upload)
@@ -276,15 +215,12 @@ func TestPendingUploadRepository_Delete(t *testing.T) {
 	require.NoError(t, err)
 
 	upload := &repository.PendingUpload{
-		UploadToken:   vo.NewUploadToken(),
-		PhotoID:       photo.ID(),
-		APIKeyID:      "test-api-key",
-		Filename:      "test.jpg",
-		ContentType:   "image/jpeg",
-		FileSizeBytes: 1024,
-		CreatedAt:     time.Now(),
-		ExpiresAt:     time.Now().Add(15 * time.Minute),
-		Status:        vo.UploadStatusPending,
+		UploadToken: vo.NewUploadToken(),
+		PhotoID:     photo.ID(),
+		APIKeyID:    "test-api-key",
+		CreatedAt:   time.Now(),
+		ExpiresAt:   time.Now().Add(15 * time.Minute),
+		Status:      vo.UploadStatusPending,
 	}
 
 	err = uploadRepo.Create(ctx, upload)
@@ -320,15 +256,12 @@ func TestPendingUploadRepository_DeleteExpired(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		upload := &repository.PendingUpload{
-			UploadToken:   vo.NewUploadToken(),
-			PhotoID:       photo.ID(),
-			APIKeyID:      "test-api-key",
-			Filename:      "test.jpg",
-			ContentType:   "image/jpeg",
-			FileSizeBytes: 1024,
-			CreatedAt:     time.Now().Add(-2 * time.Hour),
-			ExpiresAt:     time.Now().Add(-1 * time.Hour),
-			Status:        vo.UploadStatusExpired,
+			UploadToken: vo.NewUploadToken(),
+			PhotoID:     photo.ID(),
+			APIKeyID:    "test-api-key",
+			CreatedAt:   time.Now().Add(-2 * time.Hour),
+			ExpiresAt:   time.Now().Add(-1 * time.Hour),
+			Status:      vo.UploadStatusExpired,
 		}
 		err = uploadRepo.Create(ctx, upload)
 		require.NoError(t, err)
@@ -365,15 +298,12 @@ func TestPendingUploadRepository_CountActiveByAPIKey(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		upload := &repository.PendingUpload{
-			UploadToken:   vo.NewUploadToken(),
-			PhotoID:       photo.ID(),
-			APIKeyID:      apiKeyID,
-			Filename:      "test.jpg",
-			ContentType:   "image/jpeg",
-			FileSizeBytes: 1024,
-			CreatedAt:     time.Now(),
-			ExpiresAt:     time.Now().Add(15 * time.Minute),
-			Status:        vo.UploadStatusPending,
+			UploadToken: vo.NewUploadToken(),
+			PhotoID:     photo.ID(),
+			APIKeyID:    apiKeyID,
+			CreatedAt:   time.Now(),
+			ExpiresAt:   time.Now().Add(15 * time.Minute),
+			Status:      vo.UploadStatusPending,
 		}
 		err = uploadRepo.Create(ctx, upload)
 		require.NoError(t, err)
@@ -411,15 +341,12 @@ func TestPendingUploadRepository_GetExpired(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		upload := &repository.PendingUpload{
-			UploadToken:   vo.NewUploadToken(),
-			PhotoID:       photo.ID(),
-			APIKeyID:      "test-api-key",
-			Filename:      "test.jpg",
-			ContentType:   "image/jpeg",
-			FileSizeBytes: 1024,
-			CreatedAt:     time.Now().Add(-30 * time.Minute),
-			ExpiresAt:     time.Now().Add(-1 * time.Hour),
-			Status:        vo.UploadStatusPending,
+			UploadToken: vo.NewUploadToken(),
+			PhotoID:     photo.ID(),
+			APIKeyID:    "test-api-key",
+			CreatedAt:   time.Now().Add(-30 * time.Minute),
+			ExpiresAt:   time.Now().Add(-1 * time.Hour),
+			Status:      vo.UploadStatusPending,
 		}
 		err = uploadRepo.Create(ctx, upload)
 		require.NoError(t, err)

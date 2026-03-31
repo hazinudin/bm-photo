@@ -221,82 +221,6 @@ func TestPhotoRepository_HardDelete(t *testing.T) {
 	assert.False(t, exists)
 }
 
-func TestPhotoRepository_UpdateProcessingStatus(t *testing.T) {
-	ctx := context.Background()
-	db, cleanup, err := setupTestDB(ctx)
-	require.NoError(t, err)
-	defer cleanup()
-
-	err = runMigrations(ctx, db)
-	require.NoError(t, err)
-
-	err = cleanupTables(ctx, db)
-	require.NoError(t, err)
-
-	repo := NewPhotoRepository(db)
-
-	photo := NewPhotoBuilder().
-		WithRouteID("NR-001").
-		MarkUploadComplete().
-		Build()
-
-	err = repo.Create(ctx, photo)
-	require.NoError(t, err)
-
-	thumbnails := entity.ThumbnailPaths{
-		Small:  "2024/NR-001/thumbnails/small.jpg",
-		Medium: "2024/NR-001/thumbnails/medium.jpg",
-		Large:  "2024/NR-001/thumbnails/large.jpg",
-	}
-
-	err = repo.UpdateProcessingStatus(ctx, photo.ID(), vo.PhotoStatusReady, thumbnails)
-	require.NoError(t, err)
-
-	retrieved, err := repo.GetByID(ctx, photo.ID())
-	require.NoError(t, err)
-	assert.Equal(t, vo.PhotoStatusReady, retrieved.Status())
-	assert.NotNil(t, retrieved.ProcessingCompletedAt())
-	assert.Equal(t, thumbnails.Small, *retrieved.ThumbnailSmallPath())
-}
-
-func TestPhotoRepository_UpdateEXIFData(t *testing.T) {
-	ctx := context.Background()
-	db, cleanup, err := setupTestDB(ctx)
-	require.NoError(t, err)
-	defer cleanup()
-
-	err = runMigrations(ctx, db)
-	require.NoError(t, err)
-
-	err = cleanupTables(ctx, db)
-	require.NoError(t, err)
-
-	repo := NewPhotoRepository(db)
-
-	photo := NewPhotoBuilder().
-		WithRouteID("NR-001").
-		Build()
-
-	err = repo.Create(ctx, photo)
-	require.NoError(t, err)
-
-	exifData := &entity.EXIFData{
-		CameraMake:   strPtr("Canon"),
-		CameraModel:  strPtr("EOS 5D"),
-		GPSLatitude:  float64Ptr(-6.2088),
-		GPSLongitude: float64Ptr(106.8456),
-	}
-
-	err = repo.UpdateEXIFData(ctx, photo.ID(), exifData)
-	require.NoError(t, err)
-
-	retrieved, err := repo.GetByID(ctx, photo.ID())
-	require.NoError(t, err)
-	assert.NotNil(t, retrieved.EXIFData())
-	assert.Equal(t, "Canon", *retrieved.EXIFData().CameraMake)
-	assert.Equal(t, -6.2088, *retrieved.EXIFData().GPSLatitude)
-}
-
 func TestPhotoRepository_UpdateSTA(t *testing.T) {
 	ctx := context.Background()
 	db, cleanup, err := setupTestDB(ctx)
@@ -319,13 +243,17 @@ func TestPhotoRepository_UpdateSTA(t *testing.T) {
 	err = repo.Create(ctx, photo)
 	require.NoError(t, err)
 
-	err = repo.UpdateSTA(ctx, photo.ID(), 15.5, vo.STASourceLRSInterpolated)
+	newSTA := 15.5
+	newSource := vo.STASourceLRSInterpolated
+	err = repo.UpdateSTA(ctx, photo.ID(), &newSTA, &newSource)
 	require.NoError(t, err)
 
 	retrieved, err := repo.GetByID(ctx, photo.ID())
 	require.NoError(t, err)
-	assert.Equal(t, 15.5, retrieved.STAValue())
-	assert.Equal(t, vo.STASourceLRSInterpolated, retrieved.STASource())
+	assert.NotNil(t, retrieved.STAValue())
+	assert.Equal(t, 15.5, *retrieved.STAValue())
+	assert.NotNil(t, retrieved.STASource())
+	assert.Equal(t, vo.STASourceLRSInterpolated, *retrieved.STASource())
 }
 
 func TestPhotoRepository_Browse_Basic(t *testing.T) {
