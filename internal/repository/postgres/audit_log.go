@@ -164,7 +164,7 @@ func (r *AuditLogRepository) rowToAuditLogEntry(row *auditLogRow) (*repository.A
 	}
 
 	var details map[string]interface{}
-	if row.Details != nil && len(row.Details) > 0 {
+	if len(row.Details) > 0 {
 		if err := json.Unmarshal(row.Details, &details); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal details: %w", err)
 		}
