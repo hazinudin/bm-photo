@@ -23,7 +23,7 @@ const (
 	UploadTokenExpiryMinutes = 15
 
 	// MaxPendingUploadsPerKey is the maximum number of pending uploads per API key
-	MaxPendingUploadsPerKey = 5
+	MaxPendingUploadsPerKey = 10
 )
 
 // Pagination defaults
@@ -53,18 +53,6 @@ const (
 	RateLimitTotal = 100
 )
 
-// Thumbnail dimensions
-const (
-	// ThumbnailSmallWidth is the width of small thumbnails in pixels
-	ThumbnailSmallWidth = 150
-
-	// ThumbnailMediumWidth is the width of medium thumbnails in pixels
-	ThumbnailMediumWidth = 400
-
-	// ThumbnailLargeWidth is the width of large thumbnails in pixels
-	ThumbnailLargeWidth = 800
-)
-
 // STA constraints
 const (
 	// MinSTAValue is the minimum valid STA value
@@ -78,7 +66,4 @@ var UploadTokenExpiry = 15 * time.Minute
 var AllowedFileFormats = []string{"JPEG", "PNG"}
 
 // ValidUploadStatuses is the list of valid upload statuses
-var ValidUploadStatuses = []string{"pending", "uploaded", "completed", "expired"}
-
-// ValidPhotoStatuses is the list of valid photo statuses
-var ValidPhotoStatuses = []string{"processing", "ready", "failed"}
+var ValidUploadStatuses = []string{"pending", "completed", "expired"}
