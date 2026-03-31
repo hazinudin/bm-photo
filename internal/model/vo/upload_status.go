@@ -1,31 +1,23 @@
 package vo
 
-import (
-	"errors"
-	"strings"
-)
+import "errors"
 
 type UploadStatus string
 
 const (
 	UploadStatusPending   UploadStatus = "pending"
-	UploadStatusUploaded  UploadStatus = "uploaded"
 	UploadStatusCompleted UploadStatus = "completed"
 	UploadStatusExpired   UploadStatus = "expired"
 )
 
-var (
-	ErrInvalidUploadStatus = errors.New("invalid upload status")
-)
+var ErrInvalidUploadStatus = errors.New("invalid upload status")
 
 func ParseUploadStatus(s string) (UploadStatus, error) {
-	status := UploadStatus(strings.ToLower(s))
-	switch status {
-	case UploadStatusPending, UploadStatusUploaded, UploadStatusCompleted, UploadStatusExpired:
-		return status, nil
-	default:
+	status := UploadStatus(s)
+	if !status.IsValid() {
 		return "", ErrInvalidUploadStatus
 	}
+	return status, nil
 }
 
 func (s UploadStatus) String() string {
@@ -34,7 +26,7 @@ func (s UploadStatus) String() string {
 
 func (s UploadStatus) IsValid() bool {
 	switch s {
-	case UploadStatusPending, UploadStatusUploaded, UploadStatusCompleted, UploadStatusExpired:
+	case UploadStatusPending, UploadStatusCompleted, UploadStatusExpired:
 		return true
 	default:
 		return false
