@@ -3,6 +3,7 @@ package entity
 import (
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -27,7 +28,7 @@ type Photo struct {
 	staSource vo.STASource
 
 	// Storage paths
-	originalPath        string
+	gcsObjectName       string
 	thumbnailSmallPath  *string
 	thumbnailMediumPath *string
 	thumbnailLargePath  *string
@@ -75,7 +76,6 @@ type EXIFData struct {
 }
 
 // PhotoParams contains parameters for creating a new Photo.
-// Note: OriginalPath is generated automatically using naming convention <route_id>_<year>_<random_ID>
 type PhotoParams struct {
 	RouteID  string
 	LaneCode string
@@ -154,8 +154,8 @@ func NewPhoto(params PhotoParams) (*Photo, error) {
 		tags:             []string{},
 	}
 
-	// Generate original path dynamically using naming convention
-	photo.originalPath = photo.GenerateOriginalPath()
+	// Generate GCS object name dynamically using naming convention
+	photo.gcsObjectName = photo.GenerateGCSObjectName()
 
 	return photo, nil
 }
@@ -202,9 +202,9 @@ func (p *Photo) STASource() vo.STASource {
 	return p.staSource
 }
 
-// OriginalPath returns the original photo path in GCS
-func (p *Photo) OriginalPath() string {
-	return p.originalPath
+// GCSObjectName returns the GCS object name
+func (p *Photo) GCSObjectName() string {
+	return p.gcsObjectName
 }
 
 // ThumbnailSmallPath returns the small thumbnail path
@@ -465,36 +465,28 @@ func (p *Photo) Restore() error {
 	return nil
 }
 
-// GenerateGCSObjectName generates the GCS object name using the format: <route_id>_<year>_<lane_code>_<short_uuid>
-// Example: NR-001_2024_L1_a1b2c3d4.jpg
+// GenerateGCSObjectName generates the GCS object name using the format:
+// photos/{year}/{route_id}/{route_id}_{year}_{lane_code}_{shortuuid}.{ext}
+// Example: photos/2024/NR-001/NR-001_2024_L1_a1b2c3d4.jpg
 func (p *Photo) GenerateGCSObjectName() string {
 	year := p.uploadedAt.Year()
 	ext := strings.ToLower(p.fileFormat.String())
-	return fmt.Sprintf("%s_%d_%s_%s.%s", p.routeID, year, p.laneCode, shortuuid.New(), ext)
+	baseName := fmt.Sprintf("%s_%d_%s_%s", p.routeID, year, p.laneCode, shortuuid.New())
+	return fmt.Sprintf("photos/%d/%s/%s.%s", year, p.routeID, baseName, ext)
 }
 
-// GenerateThumbnailPaths generates GCS paths for thumbnails using the naming convention.
-// Format: <year>/<route_id>/thumbnails/<route_id>_<year>_<sta>_<lane>_<size>.<ext>
+// GenerateThumbnailPaths generates GCS paths for thumbnails using the gcsObjectName base.
+// Format: photos/{year}/{route_id}/{base_name}_small.{ext}
+// where base_name is {route_id}_{year}_{lane_code}_{shortuuid} from gcsObjectName
 func (p *Photo) GenerateThumbnailPaths() ThumbnailPaths {
-	year := p.uploadedAt.Year()
+	base := strings.TrimSuffix(p.gcsObjectName, path.Ext(p.gcsObjectName))
 	ext := strings.ToLower(p.fileFormat.String())
-	extUpper := strings.ToUpper(p.fileFormat.String())
-	fileName := fmt.Sprintf("%s_%d_%.2f_%s", p.routeID, year, p.staValue, p.laneCode)
 
 	return ThumbnailPaths{
-		Small:  fmt.Sprintf("%d/%s/thumbnails/%s_small.%s", year, p.routeID, fileName, ext),
-		Medium: fmt.Sprintf("%d/%s/thumbnails/%s_medium.%s", year, p.routeID, fileName, ext),
-		Large:  fmt.Sprintf("%d/%s/thumbnails/%s_large.%s", year, p.routeID, fileName, extUpper),
+		Small:  base + "_small." + ext,
+		Medium: base + "_medium." + ext,
+		Large:  base + "_large." + ext,
 	}
-}
-
-// GenerateOriginalPath generates the GCS path for the original photo.
-// Format: <year>/<route_id>/originals/<route_id>_<year>_<sta>_<lane>.<ext>
-func (p *Photo) GenerateOriginalPath() string {
-	year := p.uploadedAt.Year()
-	ext := strings.ToLower(p.fileFormat.String())
-	fileName := fmt.Sprintf("%s_%d_%.2f_%s.%s", p.routeID, year, p.staValue, p.laneCode, ext)
-	return fmt.Sprintf("%d/%s/originals/%s", year, p.routeID, fileName)
 }
 
 // PhotoRowParams contains all fields needed to reconstruct a Photo from database row.
@@ -507,7 +499,7 @@ type PhotoRowParams struct {
 	Longitude             float64
 	StaValue              float64
 	StaSource             vo.STASource
-	OriginalPath          string
+	GCSObjectName         string
 	ThumbnailSmallPath    *string
 	ThumbnailMediumPath   *string
 	ThumbnailLargePath    *string
@@ -548,7 +540,7 @@ func NewPhotoFromRepository(params PhotoRowParams) *Photo {
 		coordinates:           coords,
 		staValue:              params.StaValue,
 		staSource:             params.StaSource,
-		originalPath:          params.OriginalPath,
+		gcsObjectName:         params.GCSObjectName,
 		thumbnailSmallPath:    params.ThumbnailSmallPath,
 		thumbnailMediumPath:   params.ThumbnailMediumPath,
 		thumbnailLargePath:    params.ThumbnailLargePath,

@@ -547,18 +547,12 @@ func TestPhoto_GenerateThumbnailPaths_ReturnsCorrectPaths(t *testing.T) {
 
 	paths := photo.GenerateThumbnailPaths()
 
-	expectedID := photo.ID().String()
-	assert.Contains(t, paths.Small, expectedID)
-	assert.Contains(t, paths.Small, "_small")
-	assert.Contains(t, paths.Small, ".JPEG")
-	assert.Contains(t, paths.Medium, expectedID)
-	assert.Contains(t, paths.Medium, "_medium")
-	assert.Contains(t, paths.Large, expectedID)
-	assert.Contains(t, paths.Large, "_large")
-
-	assert.Contains(t, paths.Small, expectedID+"_small.JPEG")
-	assert.Contains(t, paths.Medium, expectedID+"_medium.JPEG")
-	assert.Contains(t, paths.Large, expectedID+"_large.JPEG")
+	assert.Contains(t, paths.Small, "photos/2026/NR-001/")
+	assert.Contains(t, paths.Small, "_small.jpeg")
+	assert.Contains(t, paths.Medium, "photos/2026/NR-001/")
+	assert.Contains(t, paths.Medium, "_medium.jpeg")
+	assert.Contains(t, paths.Large, "photos/2026/NR-001/")
+	assert.Contains(t, paths.Large, "_large.jpeg")
 }
 
 func TestPhoto_GenerateThumbnailPaths_PNGFormat(t *testing.T) {
@@ -569,7 +563,7 @@ func TestPhoto_GenerateThumbnailPaths_PNGFormat(t *testing.T) {
 
 	paths := photo.GenerateThumbnailPaths()
 
-	assert.Contains(t, paths.Small, ".PNG")
-	assert.Contains(t, paths.Medium, ".PNG")
-	assert.Contains(t, paths.Large, ".PNG")
+	assert.Contains(t, paths.Small, ".png")
+	assert.Contains(t, paths.Medium, ".png")
+	assert.Contains(t, paths.Large, ".png")
 }
