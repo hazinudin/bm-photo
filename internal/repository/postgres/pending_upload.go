@@ -30,7 +30,6 @@ type pendingUploadRow struct {
 	Filename      string
 	ContentType   string
 	FileSizeBytes int64
-	GCSObjectName string
 	CreatedAt     time.Time
 	ExpiresAt     time.Time
 	CompletedAt   *time.Time
@@ -60,7 +59,6 @@ func (r *pendingUploadRow) toPendingUpload() (*repository.PendingUpload, error) 
 		Filename:      r.Filename,
 		ContentType:   r.ContentType,
 		FileSizeBytes: r.FileSizeBytes,
-		GCSObjectName: r.GCSObjectName,
 		CreatedAt:     r.CreatedAt,
 		ExpiresAt:     r.ExpiresAt,
 		CompletedAt:   r.CompletedAt,
@@ -73,13 +71,13 @@ func (r *PendingUploadRepository) Create(ctx context.Context, upload *repository
 		INSERT INTO pending_uploads (
 			upload_token, photo_id, api_key_id,
 			file_name, content_type, file_size_bytes,
-			gcs_object_name, created_at, expires_at,
+			created_at, expires_at,
 			status
 		) VALUES (
 			$1, $2, $3,
 			$4, $5, $6,
-			$7, $8, $9,
-			$10
+			$7, $8,
+			$9
 		)`
 
 	_, err := r.db.Pool().Exec(ctx, query,
@@ -89,7 +87,6 @@ func (r *PendingUploadRepository) Create(ctx context.Context, upload *repository
 		upload.Filename,
 		upload.ContentType,
 		upload.FileSizeBytes,
-		upload.GCSObjectName,
 		upload.CreatedAt,
 		upload.ExpiresAt,
 		upload.Status.String(),
@@ -106,7 +103,7 @@ func (r *PendingUploadRepository) GetByToken(ctx context.Context, token vo.Uploa
 	query := `
 		SELECT upload_token, photo_id, api_key_id,
 			file_name, content_type, file_size_bytes,
-			gcs_object_name, created_at, expires_at,
+			created_at, expires_at,
 			completed_at, status
 		FROM pending_uploads
 		WHERE upload_token = $1`
@@ -120,7 +117,7 @@ func (r *PendingUploadRepository) GetByPhotoID(ctx context.Context, photoID vo.P
 	query := `
 		SELECT upload_token, photo_id, api_key_id,
 			file_name, content_type, file_size_bytes,
-			gcs_object_name, created_at, expires_at,
+			created_at, expires_at,
 			completed_at, status
 		FROM pending_uploads
 		WHERE photo_id = $1`
@@ -224,7 +221,7 @@ func (r *PendingUploadRepository) GetExpired(ctx context.Context, before time.Ti
 	query := `
 		SELECT upload_token, photo_id, api_key_id,
 			file_name, content_type, file_size_bytes,
-			gcs_object_name, created_at, expires_at,
+			created_at, expires_at,
 			completed_at, status
 		FROM pending_uploads
 		WHERE expires_at < $1 AND status = 'pending'
@@ -248,7 +245,6 @@ func (r *PendingUploadRepository) scanPendingUpload(row pgx.Row) (*repository.Pe
 		&p.Filename,
 		&p.ContentType,
 		&p.FileSizeBytes,
-		&p.GCSObjectName,
 		&p.CreatedAt,
 		&p.ExpiresAt,
 		&p.CompletedAt,
@@ -277,7 +273,6 @@ func (r *PendingUploadRepository) scanPendingUploads(rows pgx.Rows) ([]*reposito
 			&p.Filename,
 			&p.ContentType,
 			&p.FileSizeBytes,
-			&p.GCSObjectName,
 			&p.CreatedAt,
 			&p.ExpiresAt,
 			&p.CompletedAt,

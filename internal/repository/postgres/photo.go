@@ -34,7 +34,7 @@ type photoRow struct {
 	Longitude             float64
 	StaValue              float64
 	StaSource             string
-	OriginalPath          string
+	GCSObjectName         string
 	ThumbnailSmallPath    *string
 	ThumbnailMediumPath   *string
 	ThumbnailLargePath    *string
@@ -105,7 +105,7 @@ func (r *photoRow) toEntity() (*entity.Photo, error) {
 		Longitude:             r.Longitude,
 		StaValue:              r.StaValue,
 		StaSource:             staSource,
-		OriginalPath:          r.OriginalPath,
+		GCSObjectName:         r.GCSObjectName,
 		ThumbnailSmallPath:    r.ThumbnailSmallPath,
 		ThumbnailMediumPath:   r.ThumbnailMediumPath,
 		ThumbnailLargePath:    r.ThumbnailLargePath,
@@ -139,7 +139,7 @@ func (r *PhotoRepository) Create(ctx context.Context, photo *entity.Photo) error
 	query := `
 		INSERT INTO photos (
 			photo_id, route_id, lane_code, latitude, longitude,
-			sta_value, sta_source, original_path,
+			sta_value, sta_source, gcs_object_name,
 			thumbnail_small_path, thumbnail_medium_path, thumbnail_large_path,
 			file_format, file_size_bytes, original_filename,
 			exif_data, description, tags,
@@ -163,7 +163,7 @@ func (r *PhotoRepository) Create(ctx context.Context, photo *entity.Photo) error
 		photo.Longitude(),
 		photo.STAValue(),
 		photo.STASource().String(),
-		photo.OriginalPath(),
+		photo.GCSObjectName(),
 		photo.ThumbnailSmallPath(),
 		photo.ThumbnailMediumPath(),
 		photo.ThumbnailLargePath(),
@@ -192,7 +192,7 @@ func (r *PhotoRepository) Create(ctx context.Context, photo *entity.Photo) error
 func (r *PhotoRepository) GetByID(ctx context.Context, id vo.PhotoID) (*entity.Photo, error) {
 	query := `
 		SELECT photo_id, route_id, lane_code, latitude, longitude,
-			sta_value, sta_source, original_path,
+			sta_value, sta_source, gcs_object_name,
 			thumbnail_small_path, thumbnail_medium_path, thumbnail_large_path,
 			file_format, file_size_bytes, original_filename,
 			exif_data, description, tags,
@@ -210,7 +210,7 @@ func (r *PhotoRepository) GetByID(ctx context.Context, id vo.PhotoID) (*entity.P
 func (r *PhotoRepository) GetByUploadToken(ctx context.Context, token vo.UploadToken) (*entity.Photo, error) {
 	query := `
 		SELECT photo_id, route_id, lane_code, latitude, longitude,
-			sta_value, sta_source, original_path,
+			sta_value, sta_source, gcs_object_name,
 			thumbnail_small_path, thumbnail_medium_path, thumbnail_large_path,
 			file_format, file_size_bytes, original_filename,
 			exif_data, description, tags,
@@ -461,7 +461,7 @@ func (r *PhotoRepository) Browse(ctx context.Context, filter repository.BrowseFi
 	// Query photos with pagination
 	query := fmt.Sprintf(`
 		SELECT photo_id, route_id, lane_code, latitude, longitude,
-			sta_value, sta_source, original_path,
+			sta_value, sta_source, gcs_object_name,
 			thumbnail_small_path, thumbnail_medium_path, thumbnail_large_path,
 			file_format, file_size_bytes, original_filename,
 			exif_data, description, tags,
@@ -586,7 +586,7 @@ func (r *PhotoRepository) Search(ctx context.Context, filter repository.SearchFi
 	// Query photos with pagination
 	query := fmt.Sprintf(`
 		SELECT photo_id, route_id, lane_code, latitude, longitude,
-			sta_value, sta_source, original_path,
+			sta_value, sta_source, gcs_object_name,
 			thumbnail_small_path, thumbnail_medium_path, thumbnail_large_path,
 			file_format, file_size_bytes, original_filename,
 			exif_data, description, tags,
@@ -641,7 +641,7 @@ func (r *PhotoRepository) scanPhoto(row pgx.Row) (*entity.Photo, error) {
 		&p.Longitude,
 		&p.StaValue,
 		&p.StaSource,
-		&p.OriginalPath,
+		&p.GCSObjectName,
 		&p.ThumbnailSmallPath,
 		&p.ThumbnailMediumPath,
 		&p.ThumbnailLargePath,
@@ -686,7 +686,7 @@ func (r *PhotoRepository) scanPhotos(rows pgx.Rows) ([]*entity.Photo, error) {
 			&p.Longitude,
 			&p.StaValue,
 			&p.StaSource,
-			&p.OriginalPath,
+			&p.GCSObjectName,
 			&p.ThumbnailSmallPath,
 			&p.ThumbnailMediumPath,
 			&p.ThumbnailLargePath,

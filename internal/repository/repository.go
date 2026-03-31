@@ -180,9 +180,6 @@ type PendingUpload struct {
 	// FileSizeBytes is the size of the file in bytes.
 	FileSizeBytes int64
 
-	// GCSObjectName is the target object name in Google Cloud Storage.
-	GCSObjectName string
-
 	// CreatedAt is when the upload token was created.
 	CreatedAt time.Time
 
