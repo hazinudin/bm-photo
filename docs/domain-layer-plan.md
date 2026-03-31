@@ -1,8 +1,8 @@
 # Domain Layer Development Plan
 
-**Version:** 1.1  
-**Date:** March 27, 2026  
-**Status:** ✅ Implementation Complete
+**Version:** 1.2  
+**Date:** March 31, 2026  
+**Status:** ✅ Implementation Complete (Updated for Simplified Architecture)
 
 ---
 
@@ -12,14 +12,17 @@ This document outlines the development plan for the domain layer (models) of the
 
 **Implementation Status:** ✅ Complete - All phases implemented as of March 27, 2026
 
+**Updated:** Simplified architecture for MVP - removed processing status tracking, Phase 1 accepts all attributes, Phase 2 is confirmation only.
+
 ### Key Design Decisions
 
 1. **Strong Types for IDs** - Use value objects for PhotoID, UploadToken instead of plain strings
 2. **Rich Domain Models** - Entities contain validation logic and enforce invariants
 3. **Struct Tags** - Use `db` and `json` tags for database/JSON mapping
-4. **Aggregate Root Pattern** - Photo is the aggregate root; PendingUpload represents Photo's upload state
+4. **Aggregate Root Pattern** - Photo is the aggregate root; PendingUpload tracks upload workflow
 5. **Separation of Concerns** - Domain models focus on business logic; auth/infrastructure concerns are separate
 6. **Simplified STA** - STA confidence removed for MVP (can be added later if LRS provides it)
+7. **No Processing Status** - Deferred processing (EXIF, thumbnails, LRS) removed for MVP simplicity
 
 ---
 
@@ -275,57 +278,9 @@ func (f FileFormat) IsValid() bool {
 }
 ```
 
-### 1.5 PhotoStatus (`internal/model/vo/photo_status.go`)
+### 1.5 UploadStatus (`internal/model/vo/upload_status.go`)
 
-Enum for photo processing status.
-
-```go
-package vo
-
-import (
-    "errors"
-    "strings"
-)
-
-type PhotoStatus string
-
-const (
-    PhotoStatusProcessing PhotoStatus = "processing"
-    PhotoStatusReady      PhotoStatus = "ready"
-    PhotoStatusFailed     PhotoStatus = "failed"
-)
-
-var (
-    ErrInvalidPhotoStatus = errors.New("invalid photo status")
-)
-
-func ParsePhotoStatus(s string) (PhotoStatus, error) {
-    status := PhotoStatus(strings.ToLower(s))
-    switch status {
-    case PhotoStatusProcessing, PhotoStatusReady, PhotoStatusFailed:
-        return status, nil
-    default:
-        return "", ErrInvalidPhotoStatus
-    }
-}
-
-func (s PhotoStatus) String() string {
-    return string(s)
-}
-
-func (s PhotoStatus) IsValid() bool {
-    switch s {
-    case PhotoStatusProcessing, PhotoStatusReady, PhotoStatusFailed:
-        return true
-    default:
-        return false
-    }
-}
-```
-
-### 1.6 UploadStatus (`internal/model/vo/upload_status.go`)
-
-Enum for upload token status (part of Photo aggregate state).
+Enum for upload token status (tracked in pending_uploads table).
 
 ```go
 package vo
@@ -339,7 +294,6 @@ type UploadStatus string
 
 const (
     UploadStatusPending   UploadStatus = "pending"
-    UploadStatusUploaded  UploadStatus = "uploaded"
     UploadStatusCompleted UploadStatus = "completed"
     UploadStatusExpired   UploadStatus = "expired"
 )
@@ -351,7 +305,7 @@ var (
 func ParseUploadStatus(s string) (UploadStatus, error) {
     status := UploadStatus(strings.ToLower(s))
     switch status {
-    case UploadStatusPending, UploadStatusUploaded, UploadStatusCompleted, UploadStatusExpired:
+    case UploadStatusPending, UploadStatusCompleted, UploadStatusExpired:
         return status, nil
     default:
         return "", ErrInvalidUploadStatus
@@ -364,13 +318,15 @@ func (s UploadStatus) String() string {
 
 func (s UploadStatus) IsValid() bool {
     switch s {
-    case UploadStatusPending, UploadStatusUploaded, UploadStatusCompleted, UploadStatusExpired:
+    case UploadStatusPending, UploadStatusCompleted, UploadStatusExpired:
         return true
     default:
         return false
     }
 }
 ```
+
+**Note:** PhotoStatus enum has been removed. The MVP does not track processing status (EXIF extraction, thumbnail generation, LRS integration are deferred to future phases).
 
 ### 1.7 Coordinates (`internal/model/vo/coordinates.go`)
 
@@ -426,9 +382,9 @@ func (c Coordinates) IsZero() bool {
 
 ### 2.1 Photo Aggregate Root (`internal/model/entity/photo.go`)
 
-The Photo entity is the aggregate root. It manages its own state including upload lifecycle.
+The Photo entity is the aggregate root. It represents a survey photo with all its metadata.
 
-**Important:** The `pending_uploads` table is NOT a separate domain entity. It represents the upload state of a Photo before completion. The Photo aggregate manages this state.
+**Important:** Processing status tracking (EXIF extraction, thumbnails, LRS) is deferred to future phases. The Photo entity focuses on storing photo metadata.
 
 ```go
 package entity
@@ -444,7 +400,7 @@ import (
 )
 
 // Photo represents a survey photo in the catalog.
-// It is the aggregate root and manages its upload lifecycle.
+// It is the aggregate root and stores all photo metadata.
 type Photo struct {
     // Identity
     id vo.PhotoID
@@ -454,67 +410,44 @@ type Photo struct {
     laneCode   string
     coordinates vo.Coordinates
 
-    // Linear Reference System
-staValue  float64
-staSource vo.STASource
+    // Linear Reference System (optional - can be filled by other services)
+    staValue  *float64
+    staSource *vo.STASource
 
     // Storage paths
-    originalPath        string
-    thumbnailSmallPath  *string
-    thumbnailMediumPath *string
-    thumbnailLargePath  *string
+    gcsObjectName string
 
     // File metadata
     fileFormat       vo.FileFormat
     fileSizeBytes    int64
     originalFilename *string
 
-    // EXIF data stored as JSON
-    exifData *EXIFData
-
     // User-provided metadata
     description *string
     tags        []string
 
     // Upload metadata
-    uploadToken     vo.UploadToken
-    uploadStatus   vo.UploadStatus
-    uploadedBy     string // API Key ID (string, references auth)
-    uploadedAt     time.Time
-
-    // Processing status
-    status PhotoStatus
+    uploadToken vo.UploadToken
+    uploadedBy  string // API Key ID (string, references auth)
+    uploadedAt  time.Time
 
     // Timestamps
-    createdAt            time.Time
-    updatedAt            time.Time
-    processingCompletedAt *time.Time
+    createdAt time.Time
+    updatedAt time.Time
 
     // Soft delete
     deletedAt *time.Time
     deletedBy *string // API Key ID
 }
 
-// EXIFData contains extracted EXIF metadata
-type EXIFData struct {
-    Timestamp    *time.Time `json:"timestamp,omitempty"`
-    CameraMake   *string    `json:"camera_make,omitempty"`
-    CameraModel  *string    `json:"camera_model,omitempty"`
-    GPSLatitude  *float64   `json:"gps_latitude,omitempty"`
-    GPSLongitude *float64   `json:"gps_longitude,omitempty"`
-    Altitude     *float64   `json:"altitude,omitempty"`
-    Orientation  *int       `json:"orientation,omitempty"`
-}
-
 // PhotoParams contains parameters for creating a new Photo
-// Note: OriginalPath is generated automatically using naming convention <route_id>_<year>_<sta>_<lane>
 type PhotoParams struct {
 	RouteID        string
 	LaneCode       string
 	Latitude       float64
 	Longitude      float64
-	STAValue       float64
-	STASource      vo.STASource
+	STAValue       *float64 // Optional - can be nil
+	STASource      *vo.STASource // Optional - can be nil
 
 	FileFormat       vo.FileFormat
 	FileSizeBytes    int64
@@ -522,19 +455,18 @@ type PhotoParams struct {
 
 	UploadToken   vo.UploadToken
 	UploadedBy    string // API Key ID
+	GCSObjectName string
 }
 
 var (
 	ErrInvalidRouteID     = errors.New("route_id is required")
 	ErrInvalidLaneCode    = errors.New("lane_code must be in format L1-L10 or R1-R10")
-	ErrInvalidSTAValue    = errors.New("sta_value must be greater than or equal to 0")
 	ErrInvalidFileSize    = errors.New("file_size_bytes must be greater than 0")
 	ErrPhotoDeleted       = errors.New("photo has been deleted")
 	ErrInvalidAPIKeyID    = errors.New("invalid API key ID")
 )
 
 // NewPhoto creates a new Photo entity with validation
-// The original path is generated automatically using the naming convention: <route_id>_<year>_<sta>_<lane>
 func NewPhoto(params PhotoParams) (*Photo, error) {
 	// Validate required fields
 	if params.RouteID == "" {
@@ -543,17 +475,11 @@ func NewPhoto(params PhotoParams) (*Photo, error) {
 	if err := validateLaneCode(params.LaneCode); err != nil {
 		return nil, ErrInvalidLaneCode
 	}
-	if params.STAValue < 0 {
-		return nil, ErrInvalidSTAValue
-	}
 	if params.FileSizeBytes <= 0 {
 		return nil, ErrInvalidFileSize
 	}
 	if params.UploadedBy == "" {
 		return nil, ErrInvalidAPIKeyID
-	}
-	if !params.STASource.IsValid() {
-		return nil, vo.ErrInvalidSTASource
 	}
 	if !params.FileFormat.IsValid() {
 		return nil, vo.ErrInvalidFileFormat
@@ -578,22 +504,18 @@ func NewPhoto(params PhotoParams) (*Photo, error) {
 		laneCode:         params.LaneCode,
 		coordinates:      coords,
 		staValue:         params.STAValue,
-		staSource:        params.STASource,
+		staSource:        params.STAValue,
 		fileFormat:       params.FileFormat,
 		fileSizeBytes:    params.FileSizeBytes,
 		originalFilename: params.OriginalFilename,
 		uploadToken:      params.UploadToken,
-		uploadStatus:     vo.UploadStatusPending,
 		uploadedBy:       params.UploadedBy,
 		uploadedAt:       now,
-		status:           vo.PhotoStatusProcessing,
 		createdAt:        now,
 		updatedAt:        now,
 		tags:             []string{},
+		gcsObjectName:    params.GCSObjectName,
 	}
-
-	// Generate original path dynamically using naming convention
-	photo.originalPath = photo.GenerateOriginalPath()
 
 	return photo, nil
 }
@@ -614,114 +536,47 @@ func validateLaneCode(code string) error {
 // Getters
 func (p *Photo) ID() vo.PhotoID                    { return p.id }
 func (p *Photo) RouteID() string                   { return p.routeID }
-func (p *Photo) LaneCode() string                   { return p.laneCode }
+func (p *Photo) LaneCode() string                  { return p.laneCode }
 func (p *Photo) Latitude() float64                  { return p.coordinates.Latitude() }
 func (p *Photo) Longitude() float64                 { return p.coordinates.Longitude() }
-func (p *Photo) STAValue() float64                  { return p.staValue }
-func (p *Photo) STASource() vo.STASource            { return p.staSource }
-func (p *Photo) OriginalPath() string               { return p.originalPath }
-func (p *Photo) ThumbnailSmallPath() *string        { return p.thumbnailSmallPath }
-func (p *Photo) ThumbnailMediumPath() *string       { return p.thumbnailMediumPath }
-func (p *Photo) ThumbnailLargePath() *string        { return p.thumbnailLargePath }
-func (p *Photo) FileFormat() vo.FileFormat          { return p.fileFormat }
-func (p *Photo) FileSizeBytes() int64               { return p.fileSizeBytes }
-func (p *Photo) OriginalFilename() *string          { return p.originalFilename }
-func (p *Photo) EXIFData() *EXIFData                 { return p.exifData }
+func (p *Photo) STAValue() *float64                 { return p.staValue }
+func (p *Photo) STASource() *vo.STASource          { return p.staSource }
+func (p *Photo) GCSObjectName() string             { return p.gcsObjectName }
+func (p *Photo) FileFormat() vo.FileFormat         { return p.fileFormat }
+func (p *Photo) FileSizeBytes() int64              { return p.fileSizeBytes }
+func (p *Photo) OriginalFilename() *string         { return p.originalFilename }
 func (p *Photo) Description() *string              { return p.description }
 func (p *Photo) Tags() []string                     { return p.tags }
-func (p *Photo) UploadToken() vo.UploadToken        { return p.uploadToken }
-func (p *Photo) UploadStatus() vo.UploadStatus      { return p.uploadStatus }
+func (p *Photo) UploadToken() vo.UploadToken       { return p.uploadToken }
 func (p *Photo) UploadedBy() string                 { return p.uploadedBy }
-func (p *Photo) UploadedAt() time.Time              { return p.uploadedAt }
-func (p *Photo) Status() PhotoStatus                { return p.status }
-func (p *Photo) CreatedAt() time.Time               { return p.createdAt }
+func (p *Photo) UploadedAt() time.Time             { return p.uploadedAt }
+func (p *Photo) CreatedAt() time.Time              { return p.createdAt }
 func (p *Photo) UpdatedAt() time.Time               { return p.updatedAt }
-func (p *Photo) ProcessingCompletedAt() *time.Time { return p.processingCompletedAt }
-func (p *Photo) DeletedAt() *time.Time             { return p.deletedAt }
-func (p *Photo) DeletedBy() *string                { return p.deletedBy }
-
-// IsReady returns true if photo processing is complete
-func (p *Photo) IsReady() bool {
-    return p.status == vo.PhotoStatusReady
-}
-
-// IsProcessing returns true if photo is still being processed
-func (p *Photo) IsProcessing() bool {
-    return p.status == vo.PhotoStatusProcessing
-}
-
-// IsFailed returns true if photo processing failed
-func (p *Photo) IsFailed() bool {
-    return p.status == vo.PhotoStatusFailed
-}
+func (p *Photo) DeletedAt() *time.Time              { return p.deletedAt }
+func (p *Photo) DeletedBy() *string                 { return p.deletedBy }
 
 // IsDeleted returns true if photo has been soft deleted
 func (p *Photo) IsDeleted() bool {
     return p.deletedAt != nil
 }
 
-// IsUploadPending returns true if upload token is in pending state
-func (p *Photo) IsUploadPending() bool {
-    return p.uploadStatus == vo.UploadStatusPending
-}
-
-// IsUploadCompleted returns true if upload is completed
-func (p *Photo) IsUploadCompleted() bool {
-    return p.uploadStatus == vo.UploadStatusCompleted
+// HasSTA returns true if STA value has been set
+func (p *Photo) HasSTA() bool {
+    return p.staValue != nil
 }
 
 // Business Methods
 
-// MarkUploadComplete transitions upload status to uploaded
-// Called after GCS upload is verified
-func (p *Photo) MarkUploadComplete() error {
-    if p.uploadStatus != vo.UploadStatusPending {
-        return errors.New("upload is not in pending state")
-    }
-    p.uploadStatus = vo.UploadStatusUploaded
-    p.updatedAt = time.Now()
-    return nil
-}
-
-// MarkProcessingComplete transitions photo to ready status
-func (p *Photo) MarkProcessingComplete(thumbnailPaths ThumbnailPaths) error {
-    if p.uploadStatus != vo.UploadStatusUploaded {
-        return errors.New("upload must be completed before processing")
-    }
-    now := time.Now()
-    p.thumbnailSmallPath = &thumbnailPaths.Small
-    p.thumbnailMediumPath = &thumbnailPaths.Medium
-    p.thumbnailLargePath = &thumbnailPaths.Large
-    p.status = vo.PhotoStatusReady
-    p.processingCompletedAt = &now
-    p.uploadStatus = vo.UploadStatusCompleted
-    p.updatedAt = now
-    return nil
-}
-
-// MarkProcessingFailed transitions photo to failed status
-func (p *Photo) MarkProcessingFailed(reason string) error {
-    p.status = vo.PhotoStatusFailed
-    p.updatedAt = time.Now()
-    return nil
-}
-
-// SetEXIFData sets the EXIF metadata
-func (p *Photo) SetEXIFData(exif *EXIFData) {
-    p.exifData = exif
-    p.updatedAt = time.Now()
-}
-
-// SetSTA sets the STA value and source
+// SetSTA sets the STA value and source (called by LRS integration later)
 func (p *Photo) SetSTA(value float64, source vo.STASource) error {
     if value < 0 {
-        return ErrInvalidSTAValue
+        return errors.New("sta_value must be >= 0")
     }
     if !source.IsValid() {
         return vo.ErrInvalidSTASource
     }
-    p.staValue = value
-    p.staSource = source
+    p.staValue = &value
+    p.staSource = &source
     p.updatedAt = time.Now()
     return nil
 }
@@ -747,7 +602,6 @@ func (p *Photo) UpdateTags(tags []string) error {
 }
 
 // UpdateLaneCode updates the lane code (only if not deleted)
-// Lane code must be in format L1-L10 or R1-R10 (e.g., L1, L2, R1, R10)
 func (p *Photo) UpdateLaneCode(laneCode string) error {
     if p.IsDeleted() {
         return ErrPhotoDeleted
@@ -782,47 +636,17 @@ func (p *Photo) Restore() error {
     p.updatedAt = time.Now()
     return nil
 }
-
-// ThumbnailPaths contains paths for generated thumbnails
-type ThumbnailPaths struct {
-    Small  string
-    Medium string
-    Large  string
-}
-
-// GenerateGCSObjectName generates the GCS object name using the format: <route_id>_<year>_<sta>_<lane>
-// Example: NR-001_2024_5.2_L1.jpg
-func (p *Photo) GenerateGCSObjectName() string {
-	year := p.uploadedAt.Year()
-	ext := strings.ToLower(p.fileFormat.String())
-	return fmt.Sprintf("%s_%d_%.2f_%s.%s", p.routeID, year, p.staValue, p.laneCode, ext)
-}
-
-// GenerateThumbnailPaths generates GCS paths for thumbnails using the naming convention
-func (p *Photo) GenerateThumbnailPaths() ThumbnailPaths {
-	year := p.uploadedAt.Year()
-	month := int(p.uploadedAt.Month())
-	day := p.uploadedAt.Day()
-	ext := strings.ToLower(p.fileFormat.String())
-	baseName := fmt.Sprintf("%s_%d_%.2f_%s", p.routeID, year, p.staValue, p.laneCode)
-	
-	return ThumbnailPaths{
-		Small:  fmt.Sprintf("thumbnails/%s/%04d/%02d/%02d/%s_small.%s", p.routeID, year, month, day, baseName, ext),
-		Medium: fmt.Sprintf("thumbnails/%s/%04d/%02d/%02d/%s_medium.%s", p.routeID, year, month, day, baseName, ext),
-		Large:  fmt.Sprintf("thumbnails/%s/%04d/%02d/%02d/%s_large.%s", p.routeID, year, month, day, baseName, ext),
-	}
-}
-
-// GenerateOriginalPath generates the GCS path for the original photo
-func (p *Photo) GenerateOriginalPath() string {
-	year := p.uploadedAt.Year()
-	month := int(p.uploadedAt.Month())
-	day := p.uploadedAt.Day()
-	ext := strings.ToLower(p.fileFormat.String())
-	fileName := fmt.Sprintf("%s_%d_%.2f_%s.%s", p.routeID, year, p.staValue, p.laneCode, ext)
-	return fmt.Sprintf("originals/%s/%04d/%02d/%02d/%s", p.routeID, year, month, day, fileName)
-}
 ```
+
+**Removed from previous version:**
+- `status` field (processing status tracking removed for MVP)
+- `exifData` field (EXIF extraction deferred)
+- `thumbnailSmallPath`, `thumbnailMediumPath`, `thumbnailLargePath` fields (thumbnails deferred)
+- `processingCompletedAt` field
+- `uploadStatus` field and related methods
+- `MarkUploadComplete()`, `MarkProcessingComplete()`, `MarkProcessingFailed()` methods
+- `IsReady()`, `IsProcessing()`, `IsFailed()` methods
+- `GenerateGCSObjectName()`, `GenerateThumbnailPaths()`, `GenerateOriginalPath()` methods (GCS object name is now passed as a parameter)
 
 ---
 
@@ -843,18 +667,30 @@ import (
     "github.com/bina-marga/survey-photo/internal/model/vo"
 )
 
-// GetSignedUploadURLRequest - Phase 1: Request signed upload URL
+// GetSignedUploadURLRequest - Phase 1: Request signed upload URL with all attributes
 type GetSignedUploadURLRequest struct {
-    FileMetadata FileMetadata `json:"file_metadata"`
+    FileMetadata    FileMetadata    `json:"file_metadata"`
+    PhotoAttributes PhotoAttributes `json:"photo_attributes"`
 }
 
 type FileMetadata struct {
-    Filename     string `json:"filename"`
-    ContentType  string `json:"content_type"`
-    FileSizeBytes int64 `json:"file_size_bytes"`
+    Filename      string `json:"filename"`
+    ContentType   string `json:"content_type"`
+    FileSizeBytes int64  `json:"file_size_bytes"`
+}
+
+type PhotoAttributes struct {
+    RouteID     string   `json:"route_id"`
+    LaneCode    string   `json:"lane_code"`
+    Latitude    float64  `json:"latitude"`
+    Longitude   float64  `json:"longitude"`
+    STAValue    *float64 `json:"sta_value,omitempty"`
+    Description *string `json:"description,omitempty"`
+    Tags        []string `json:"tags,omitempty"`
 }
 
 func (r *GetSignedUploadURLRequest) Validate() error {
+    // Validate file metadata
     if r.FileMetadata.Filename == "" {
         return &ValidationError{Field: "file_metadata.filename", Message: "filename is required"}
     }
@@ -870,58 +706,28 @@ func (r *GetSignedUploadURLRequest) Validate() error {
     if r.FileMetadata.FileSizeBytes > MaxFileSizeBytes {
         return &ValidationError{Field: "file_metadata.file_size_bytes", Message: "file size exceeds maximum of 10MB"}
     }
+
+    // Validate photo attributes
+    if r.PhotoAttributes.RouteID == "" {
+        return &ValidationError{Field: "photo_attributes.route_id", Message: "route_id is required"}
+    }
+    if err := validateLaneCode(r.PhotoAttributes.LaneCode); err != nil {
+        return &ValidationError{Field: "photo_attributes.lane_code", Message: err.Error()}
+    }
+    if r.PhotoAttributes.Latitude < -90 || r.PhotoAttributes.Latitude > 90 {
+        return &ValidationError{Field: "photo_attributes.latitude", Message: "latitude must be between -90 and 90"}
+    }
+    if r.PhotoAttributes.Longitude < -180 || r.PhotoAttributes.Longitude > 180 {
+        return &ValidationError{Field: "photo_attributes.longitude", Message: "longitude must be between -180 and 180"}
+    }
+    if r.PhotoAttributes.STAValue != nil && *r.PhotoAttributes.STAValue < 0 {
+        return &ValidationError{Field: "photo_attributes.sta_value", Message: "sta_value must be >= 0"}
+    }
     return nil
 }
 
 func isValidContentType(ct string) bool {
     return ct == "image/jpeg" || ct == "image/png"
-}
-
-// GetSignedUploadURLResponse - Phase 1: Response with signed URL
-type GetSignedUploadURLResponse struct {
-    UploadToken   vo.UploadToken `json:"upload_token"`
-    SignedURL     string         `json:"signed_url"`
-    GCSObjectName string         `json:"gcs_object_name"`
-    PhotoID       vo.PhotoID     `json:"photo_id"`
-    ExpiresAt     time.Time      `json:"expires_at"`
-}
-
-// CompleteUploadRequest - Phase 2: Complete upload with metadata
-type CompleteUploadRequest struct {
-    UploadToken     vo.UploadToken `json:"upload_token"`
-    RouteID         string         `json:"route_id"`
-    LaneCode        string         `json:"lane_code"`
-    Latitude        float64        `json:"latitude"`
-    Longitude       float64        `json:"longitude"`
-    STAValue        *float64       `json:"sta_value,omitempty"`
-    Description     *string        `json:"description,omitempty"`
-    Tags            []string       `json:"tags,omitempty"`
-    UploadTimestamp string         `json:"upload_timestamp"`
-}
-
-func (r *CompleteUploadRequest) Validate() error {
-    if !r.UploadToken.IsValid() {
-        return &ValidationError{Field: "upload_token", Message: "invalid upload token format"}
-    }
-    if r.RouteID == "" {
-        return &ValidationError{Field: "route_id", Message: "route_id is required"}
-    }
-    if err := validateLaneCode(r.LaneCode); err != nil {
-        return &ValidationError{Field: "lane_code", Message: "lane_code must be in format L1-L10 or R1-R10"}
-    }
-    if r.Latitude < -90 || r.Latitude > 90 {
-        return &ValidationError{Field: "latitude", Message: "latitude must be between -90 and 90"}
-    }
-    if r.Longitude < -180 || r.Longitude > 180 {
-        return &ValidationError{Field: "longitude", Message: "longitude must be between -180 and 180"}
-    }
-    if r.STAValue != nil && *r.STAValue < 0 {
-        return &ValidationError{Field: "sta_value", Message: "sta_value must be greater than or equal to 0"}
-    }
-    if r.UploadTimestamp == "" {
-        return &ValidationError{Field: "upload_timestamp", Message: "upload_timestamp is required"}
-    }
-    return nil
 }
 
 // validateLaneCode checks if lane code is in format L1-L10 or R1-R10
@@ -936,38 +742,30 @@ func validateLaneCode(code string) error {
     return nil
 }
 
-// CompleteUploadResponse - Phase 2: Confirmation response
-type CompleteUploadResponse struct {
-    PhotoID       vo.PhotoID    `json:"photo_id"`
-    RouteID       string        `json:"route_id"`
-    LaneCode      string        `json:"lane_code"`
-    Latitude      float64       `json:"latitude"`
-    Longitude     float64       `json:"longitude"`
-    STAValue      float64       `json:"sta_value"`
-    STASource     vo.STASource  `json:"sta_source"`
-    FileFormat    vo.FileFormat `json:"file_format"`
-    FileSizeBytes int64         `json:"file_size_bytes"`
-    Status        string        `json:"status"`
-    UploadedAt    time.Time     `json:"uploaded_at"`
-    ThumbnailURLs ThumbnailURLs `json:"thumbnail_urls"`
-    Message       string        `json:"message"`
+// GetSignedUploadURLResponse - Phase 1: Response with signed URL
+type GetSignedUploadURLResponse struct {
+    UploadToken vo.UploadToken `json:"upload_token"`
+    SignedURL   string        `json:"signed_url"`
+    PhotoID     vo.PhotoID    `json:"photo_id"`
+    ExpiresAt   time.Time     `json:"expires_at"`
 }
 
-type ThumbnailURLs struct {
-    Small  *string `json:"small,omitempty"`
-    Medium *string `json:"medium,omitempty"`
-    Large  *string `json:"large,omitempty"`
+// ConfirmUploadRequest - Phase 2: Confirm successful GCS upload
+type ConfirmUploadRequest struct {
+    UploadToken vo.UploadToken `json:"upload_token"`
 }
 
-// PhotoStatusResponse - Get upload/processing status
-type PhotoStatusResponse struct {
-    PhotoID          vo.PhotoID `json:"photo_id"`
-    Status           string     `json:"status"`
-    ThumbnailsReady  bool       `json:"thumbnails_ready"`
-    EXIFExtracted    bool       `json:"exif_extracted"`
-    STACalculated    bool       `json:"sta_calculated"`
-    ErrorMessage     *string    `json:"error_message,omitempty"`
-    ProcessedAt      *time.Time `json:"processed_at,omitempty"`
+func (r *ConfirmUploadRequest) Validate() error {
+    if !r.UploadToken.IsValid() {
+        return &ValidationError{Field: "upload_token", Message: "invalid upload token format"}
+    }
+    return nil
+}
+
+// ConfirmUploadResponse - Phase 2: Confirmation response
+type ConfirmUploadResponse struct {
+    PhotoID vo.PhotoID `json:"photo_id"`
+    Message string    `json:"message"`
 }
 ```
 
@@ -989,33 +787,21 @@ type PhotoResponse struct {
     LaneCode      string        `json:"lane_code"`
     Latitude      float64       `json:"latitude"`
     Longitude     float64       `json:"longitude"`
-    STAValue      float64       `json:"sta_value"`
-    STASource     vo.STASource  `json:"sta_source"`
+    STAValue      *float64      `json:"sta_value,omitempty"`
+    STASource     *vo.STASource `json:"sta_source,omitempty"`
     FileFormat    vo.FileFormat `json:"file_format"`
     FileSizeBytes int64         `json:"file_size_bytes"`
-    EXIFData      *EXIFDataDTO  `json:"exif_data,omitempty"`
     Description   *string       `json:"description,omitempty"`
     Tags          []string      `json:"tags"`
     UploadedAt    time.Time     `json:"uploaded_at"`
     DownloadURL   string        `json:"download_url"`
-    ThumbnailURLs ThumbnailURLs `json:"thumbnail_urls"`
-}
-
-type EXIFDataDTO struct {
-    Timestamp    *time.Time `json:"timestamp,omitempty"`
-    CameraMake   *string    `json:"camera_make,omitempty"`
-    CameraModel  *string    `json:"camera_model,omitempty"`
-    GPSLatitude  *float64   `json:"gps_latitude,omitempty"`
-    GPSLongitude *float64   `json:"gps_longitude,omitempty"`
-    Altitude     *float64   `json:"altitude,omitempty"`
-    Orientation  *int       `json:"orientation,omitempty"`
 }
 
 // UpdatePhotoRequest - Update photo metadata
 type UpdatePhotoRequest struct {
     Description *string  `json:"description,omitempty"`
     Tags        []string `json:"tags,omitempty"`
-    LaneCode    *string   `json:"lane_code,omitempty"`
+    LaneCode    *string  `json:"lane_code,omitempty"`
 }
 
 func (r *UpdatePhotoRequest) Validate() error {
@@ -1039,10 +825,15 @@ type UpdatePhotoResponse struct {
 // DeletePhotoResponse - Confirmation of deletion
 type DeletePhotoResponse struct {
     PhotoID      vo.PhotoID `json:"photo_id"`
-    DeletedAt    time.Time   `json:"deleted_at"`
-    DeletionType string      `json:"deletion_type"` // "soft" or "hard"
+    DeletedAt    time.Time  `json:"deleted_at"`
+    DeletionType string     `json:"deletion_type"` // "soft" or "hard"
 }
 ```
+
+**Removed from previous version:**
+- `EXIFData` field and `EXIFDataDTO` (EXIF extraction deferred)
+- `ThumbnailURLs` struct (thumbnails deferred)
+- `Status` field (processing status tracking removed for MVP)
 
 ### 3.3 Browse DTOs (`internal/model/dto/rest/browse.go`)
 
@@ -1249,7 +1040,7 @@ const (
 // Upload token constraints
 const (
     UploadTokenExpiryMinutes = 15
-    MaxPendingUploadsPerKey  = 5
+    MaxPendingUploadsPerKey  = 10
 )
 
 // Pagination defaults
@@ -1262,16 +1053,9 @@ const (
 // Rate limits (requests per minute per API key)
 const (
     RateLimitSignedURL = 10
-    RateLimitComplete  = 10
+    RateLimitConfirm   = 10
     RateLimitBrowse    = 100
     RateLimitTotal     = 100
-)
-
-// Thumbnail dimensions
-const (
-    ThumbnailSmallWidth  = 150
-    ThumbnailMediumWidth = 400
-    ThumbnailLargeWidth  = 800
 )
 
 // STA constraints
@@ -1285,12 +1069,11 @@ var UploadTokenExpiry = 15 * time.Minute
 // File formats
 var AllowedFileFormats = []string{"JPEG", "PNG"}
 
-// Upload statuses
-var ValidUploadStatuses = []string{"pending", "uploaded", "completed", "expired"}
-
-// Photo statuses
-var ValidPhotoStatuses = []string{"processing", "ready", "failed"}
+// Upload statuses (pending_uploads table)
+var ValidUploadStatuses = []string{"pending", "completed", "expired"}
 ```
+
+**Note:** Photo status enum has been removed. Thumbnail constants removed (thumbnails deferred to future phase).
 
 ---
 

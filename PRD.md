@@ -1,9 +1,9 @@
 # Product Requirements Document (PRD)
 # Bina Marga Survey Photo Service
 
-**Version:** 1.2  
-**Date:** March 27, 2026  
-**Status:** In Progress - Repository Layer Complete  
+**Version:** 1.3  
+**Date:** March 31, 2026  
+**Status:** In Progress - Simplified Upload Architecture  
 
 ---
 
@@ -105,29 +105,37 @@ This service serves as the authoritative catalog for survey photographs of Indon
 
 The photo upload process uses a two-phase approach to optimize for performance and scalability:
 
-**Phase 1: Direct Upload to GCS (Client-Side)**
-- Client requests signed URL from backend
-- Client uploads directly to Google Cloud Storage using signed URL
-- Reduces backend server load and improves upload speed
+**Phase 1: Request Signed URL with Full Metadata (Client-Side)**
+- Client provides ALL photo attributes upfront (file metadata + photo metadata)
+- Backend validates all data, creates photo record, and generates signed URL
+- Returns signed URL, upload token, and photo ID to client
 
-**Phase 2: Metadata Submission (Client-Side)**
-- Client submits photo metadata to backend after successful upload
-- Backend validates and processes the uploaded photo
-- Backend generates thumbnails and extractsEXIF data
+**Phase 2: Confirm Upload Completion (Client-Side)**
+- Client confirms successful GCS upload
+- Backend verifies file exists in GCS
+- Marks upload as completed (photo already has all metadata)
 
-#### 2.1.2 Upload Endpoints
+**Key Design Decision:** Photo attributes (route_id, lane_code, coordinates, etc.) are provided in Phase 1, not Phase 2. This simplifies the architecture and allows all validation to happen upfront. Phase 2 is purely a confirmation step.
+
+**Deferred Features (Future Phases):**
+- EXIF metadata extraction
+- Thumbnail generation
+- LRS integration for STA interpolation
+- Post-upload processing workflow
+
+####2.1.2 Upload Endpoints
 
 **Endpoint 1: Get Signed Upload URL**
 - **Priority:** Must Have
 - **API Method:** POST /api/v1/photos/upload-url
 - **Authentication:** API Key required
-- **Purpose:** Generate a signed URL for direct client upload to GCS
+- **Purpose:** Generate a signed URL for direct client upload to GCS with full photo metadata
 
-**Endpoint 2: Complete Photo Upload**
+**Endpoint 2: Confirm Upload**
 - **Priority:** Must Have
-- **API Method:** POST /api/v1/photos/complete
+- **API Method:** POST /api/v1/photos/confirm
 - **Authentication:** API Key required
-- **Purpose:** Submit metadata after upload completion
+- **Purpose:** Confirm successful GCS upload
 
 #### 2.1.3 Photo Attributes
 
@@ -137,20 +145,96 @@ The photo upload process uses a two-phase approach to optimize for performance a
 | file_metadata.filename | string | Yes | Client | upload-url | Original filename |
 | file_metadata.content_type | string | Yes | Client | upload-url | MIME type (image/jpeg or image/png) |
 | file_metadata.file_size | integer | Yes | Client | upload-url | File size in bytes (max 10MB) |
-| upload_token | string | Yes | Client | complete | Token from signed URL creation (server uses this to look up GCS object name) |
-| route_id | string | Yes | Client | complete | Identifier for national route |
-| lane_code | string | Yes | Client | complete | Lane identifier (L1-L10 for left lanes, R1-R10 for right lanes) |
-| latitude | decimal | Yes | Client | complete | Latitude in decimal degrees (EPSG:4326) |
-| longitude | decimal | Yes | Client | complete | Longitude in decimal degrees (EPSG:4326) |
-| sta_value | decimal | Conditional | Client | complete | Station value along route (optional if LRS can interpolate) |
-| description | string | No | Client | complete | Optional photo description |
-| tags | array | No | Client | complete | Optional tags for categorization |
-| upload_timestamp | string | Yes | Client | complete | ISO8601 timestamp when upload completed |
+| photo_attributes | object | Yes | Client | upload-url | Photo metadata |
+| photo_attributes.route_id | string | Yes | Client | upload-url | Identifier for national route |
+| photo_attributes.lane_code | string | Yes | Client | upload-url | Lane identifier (L1-L10 for left lanes, R1-R10 for right lanes) |
+| photo_attributes.latitude | decimal | Yes | Client | upload-url | Latitude in decimal degrees (EPSG:4326) |
+| photo_attributes.longitude | decimal | Yes | Client | upload-url | Longitude in decimal degrees (EPSG:4326) |
+| photo_attributes.sta_value | decimal | No | Client | upload-url | Station value along route (optional) |
+| photo_attributes.description | string | No | Client | upload-url | Optional photo description |
+| photo_attributes.tags | array | No | Client | upload-url | Optional tags for categorization |
+| upload_token | string | Yes | Client | confirm | Token from signed URL creation |
 
-**Note:** The client does NOT send `gcs_object_name` in the complete request. The server retrieves it from the `pending_uploads` table using the `upload_token`. This prevents the client from claiming a file location that differs from what was signed.
+**Note:** LRS integration for STA calculation is deferred to a future phase. If `sta_value` is not provided, it can be calculated later by other services when coordinate data is available.
 
 #### 2.1.4 Upload Workflow
 
+```
+Phase 1: Get Signed Upload URL (with full metadata)
+─────────────────────────────────────────────────────────────────┐
+Client sends:                                           │
+    ├─ file_metadata (filename, content_type, file_size) │
+    └─ photo_attributes (route_id, lane_code,           │
+         latitude, longitude, sta_value,                 │
+         description, tags)                             │
+    ↓                                                    │
+Validate API Key                                         │
+    ↓                                                    │
+Validate file metadata                                   │
+    ├─ Check file size (max 10MB)                       │
+    ├─ Check content type (JPEG/PNG)                    │
+    └─ Validate filename format                          │
+    ↓                                                    │
+Validate photo attributes                                │
+    ├─ Validate route_id format                         │
+    ├─ Validate lane_code format (L1-L10, R1-R10)      │
+    ├─ Validate coordinates (lat/lon ranges)            │
+    └─ Validate sta_value if provided                    │
+    ↓                                                    │
+Check concurrent upload limit for API key                 │
+    └─ Max 10 pending uploads per API key               │
+    ↓                                                    │
+Generate identifiers and GCS object name                 │
+    ├─ Create unique photo_id (UUID)                     │
+    ├─ Generate GCS object name:                        │
+    │   photos/{year}/{route_id}/{route_id}_{year}_     │
+    │   {lane}_{shortuuid}.{ext}                        │
+    ├─ Create upload_token (UUID)                       │
+    └─ Create signed URL for that object path (15 min)   │
+    ↓                                                    │
+Create photo record in database                          │
+    ├─ photo_id, route_id, lane_code                    │
+    ├─ latitude, longitude, sta_value                   │
+    ├─ gcs_object_name, file_format, file_size         │
+    └─ status = 'pending'                               │
+    ↓                                                    │
+Create pending_upload record                             │
+    ├─ upload_token, photo_id                           │
+    ├─ api_key_id, expires_at                           │
+    └─ status = 'pending'                               │
+    ↓                                                    │
+Return to client                                         │
+    ├─ signed_url (for uploading to GCS)               │
+    ├─ upload_token (for confirmation request)          │
+    └─ photo_id (for client reference)                  │
+─────────────────────────────────────────────────────────────────┘
+
+Phase 2: Confirm Upload
+─────────────────────────────────────────────────────────────────┐
+Client sends:                                            │
+    └─ upload_token                                      │
+    ↓                                                    │
+Validate API Key                                         │
+    ↓                                                    │
+Validate upload token                                    │
+    ├─ Look up pending_upload by upload_token            │
+    ├─ Check token exists and not expired                │
+    ├─ Verify token status is 'pending'                 │
+    └─ Verify API key matches token record               │
+    ↓                                                    │
+Verify file exists in GCS                                │
+    └─ Use gcs_object_name from photo record            │
+    ↓                                                    │
+Mark pending_upload status as 'completed'                │
+    ↓                                                    │
+Return confirmation to client                            │
+    ├─ photo_id                                          │
+    └─ message: "Upload confirmed"                       │
+─────────────────────────────────────────────────────────────────┘
+
+Note: EXIF extraction, thumbnail generation, and LRS integration
+are deferred to future phases. These features will be triggered
+by other services when coordinate data becomes available.
 ```
 Phase 1: Get Signed Upload URL
 ──────────────────────────────────────────────────────────┐
@@ -165,15 +249,14 @@ Validate file metadata                                   │
     ↓                                                    │
 Generate upload token and object path                    │
     ├─ Create unique photo_id (UUID)                     │
-    ├─ Generate GCS object name from metadata            │
-    │   (e.g., {year}/{route_id}/originals/{route_id}_{year}_{sta}_{lane}.jpg) │
+    ├─ Generate GCS object name using format:            │
+    │   photos/{year}/{route_id}/{route_id}_{year}_{lane}_{shortuuid}.{ext}  │
     ├─ Create upload_token (UUID)                        │
     └─ Create signed URL for that specific object path   │
     ↓                                                    │
 Store pending upload metadata                            │
     ├─ photo_id                                          │
     ├─ upload_token                                      │
-    ├─ gcs_object_name                                   │
     ├─ expiry timestamp (15 min)                        │
     ├─ file metadata (size, type, name)                 │
     ├─ api_key_id                                        │
@@ -211,10 +294,10 @@ Validate upload token                                    │
     ├─ Verify token status is 'uploaded'                 │
     │   (NOT pending, completed, or expired)            │
     ├─ Verify API key matches token record               │
-    └─ Retrieve gcs_object_name from token record       │
+    └─ Retrieve gcs_object_name from photo record       │
     ↓                                                    │
 Verify file exists in GCS                                │
-    └─ Use gcs_object_name from token record             │
+    └─ Use gcs_object_name from photo record            │
     ↓                                                    │
 Mark token as 'processing' (prevent reuse)              │
     ↓                                                    │
@@ -236,7 +319,7 @@ Generate thumbnails (background process)                  │
 Store metadata in PostgreSQL catalog                     │
     ├─ photo_id (UUID)                                   │
     ├─ All attributes                                    │
-    ├─ gcs_object_name (from token record)              │
+    ├─ gcs_object_name (from photo record)              │
     ├─ LRS metadata                                       │
     ├─ Storage paths (original + thumbnails)             │
     ├─ EXIF data (JSONB)                                 │
@@ -281,7 +364,6 @@ Phase 2: Complete Photo Upload
 ──────────────────────────────────────────────────────────┐
 Client sends completion request                           │
     ├─ upload_token                                      │
-    ├─ gcs_object_name                                   │
     ├─ route_id                                          │
     ├─ lane_code                                        │
     ├─ latitude/longitude                                 │
@@ -293,10 +375,10 @@ Validate API Key                                         │
 Validate upload token                                    │
     ├─ Check token exists and not expired                │
     ├─ Verify token status is 'uploaded' (NOT pending, completed, or expired)│
-    ├─ Verify gcs_object_name matches token record       │
     └─ Verify API key matches token record               │
     ↓                                                    │
 Verify file exists in GCS                                │
+    └─ Use gcs_object_name from photo record            │
     ↓                                                    │
 Mark token as 'processing' (prevent reuse)              │
     ↓                                                    │
@@ -318,6 +400,7 @@ Generate thumbnails (background process)                  │
 Store metadata in PostgreSQL catalog                     │
     ├─ photo_id (UUID)                                   │
     ├─ All attributes                                    │
+    ├─ gcs_object_name (from photo record)              │
     ├─ LRS metadata                                       │
     ├─ Storage paths (original + thumbnails)             │
     ├─ EXIF data (JSONB)                                 │
@@ -342,62 +425,61 @@ Return photo_id and metadata to client                   │
 | UNSUPPORTED_FORMAT | Content type not JPEG or PNG | 400 Bad Request |
 | UPLOAD_QUOTA_EXCEEDED | Too many pending uploads for API key | 429 Too Many Requests |
 | STORAGE_ERROR | Failed to generate signed URL | 500 Internal Server Error |
+| INVALID_COORDINATES | Coordinates outside valid range | 400 Bad Request |
+| INVALID_ROUTE_ID | Invalid route ID format | 400 Bad Request |
+| INVALID_LANE_CODE | Invalid lane code format | 400 Bad Request |
 
 **Client-Side GCS Upload Errors:**
 
 | Error Code | Description | Resolution |
-|------------|-------------|-------------|
+|------------|-------------|------------|
 | UnsignedUpload | Attempting upload without valid signed URL | Obtain new signed URL |
 | ExpiredURL | Signed URL has expired (15 min timeout) | Request new signed URL |
 | CORS | Pre-flight request blocked | Configure GCS bucket CORS |
-| NetworkError | Upload interrupted | Retry upload with same signed URL |
+| NetworkError | Upload interrupted | Request new signed URL |
 
-**Phase 2 (Complete Upload) Errors:**
+**Phase 2 (Confirm Upload) Errors:**
 
 | Error Code | Description | HTTP Status |
 |------------|-------------|-------------|
 | INVALID_API_KEY | API key missing or invalid | 401 Unauthorized |
 | INVALID_UPLOAD_TOKEN | Token missing, expired, or already used | 400 Bad Request |
 | TOKEN_NOT_FOUND | Upload token does not exist | 404 Not Found |
-| TOKEN_ALREADY_USED | Token has already been used for another upload | 409 Conflict |
+| TOKEN_ALREADY_USED | Token has already been used | 409 Conflict |
 | TOKEN_EXPIRED | Token has expired (15 minute timeout) | 410 Gone |
-| UPLOAD_IN_PROGRESS | Token is currently being processed by another request | 409 Conflict |
 | FILE_NOT_FOUND | Photo file not found in GCS at expected location | 404 Not Found |
-| INVALID_COORDINATES | Coordinates outside valid range | 400 Bad Request |
-| ROUTE_NOT_FOUND | Route ID doesn't exist in LRS | 404 Not Found |
-| LRS_UNAVAILABLE | LRS service unavailable | 503 Service Unavailable |
-| EXIF_EXTRACTION_FAILED | Failed to extract EXIF metadata | 500 Internal Server Error |
-| THUMBNAIL_GENERATION_FAILED | Thumbnail generation failed | 500 Internal Server Error |
 
-#### 2.1.6 Signed URL Best Practices
+#### 2.1.6 Upload Token Lifecycle
 
-**Single-Use Enforcement:**
-- Each signed URL can only be used once successfully
-- Upload tokens have state: pending → uploaded → completed
-- Backend validates token state before processing completion
+**Token States:**
+- `pending` → Initial state when signed URL is generated
+- `completed` → Marked after successful upload confirmation
+- `expired` → Marked after 15-minute timeout
+
+**Token Enforcement:**
+- Backend validates token state before processing confirmation
 - Attempting to reuse a token results in TOKEN_ALREADY_USED error
+- Token expiration prevents indefinite pending uploads
 
 **Client-Side Retry Logic:**
 - If GCS upload fails (network error, timeout), request a NEW signed URL
 - Do NOT retry with the same signed URL after a failed upload
-- If complete request fails, check photo status (GET /photos/{id}/status)
-- If photo status is "processing" or "ready", the upload succeeded internally
+- If confirm request fails, token may still be valid for retry
 
 **Cleanup and Expiration:**
-- Expired tokens (15 minutes old) are automatically marked as 'expired'
-- Background job runs every hour to clean up expired tokens
-- Expired tokens are safe to remove from database after 24 hours
-- Cleanup maintains database health and prevents storage bloat
+- Expired tokens are marked as 'expired' (background job runs hourly)
+- Photos associated with expired tokens remain in database for manual review
+- Deferred processing features (EXIF, thumbnails, LRS) are not triggered for expired uploads
 
 **Example Retry Flow:**
 ```
-1. Client requests signed URL (token: abc-123)
+1. Client requests signed URL with metadata (token: abc-123)
 2. Client attempts upload to GCS
 3. Upload fails (network timeout)
 4. Client requests NEW signed URL (token: xyz-789)
 5. Upload succeeds with new token
-6. Client completes upload with token xyz-789
-7. Token abc-123 remains in 'pending' state until cleanup
+6. Client confirms upload with token xyz-789
+7. Token abc-123 remains in 'pending' state until expiration
 ```
 
 ### 2.2 Photo Browsing and Search
@@ -556,14 +638,24 @@ Response:
 - **Bucket Name:** bm-survey-photos-{environment}
 - **Bucket Structure:**
   ```
-  /{year}/
-    /{route_id}/
-      /originals/
-        /{route_id}_{year}_{sta}_{lane}.{ext}
-      /thumbnails/
-        /{route_id}_{year}_{sta}_{lane}_small.{ext}
-        /{route_id}_{year}_{sta}_{lane}_medium.{ext}
-        /{route_id}_{year}_{sta}_{lane}_large.{ext}
+  /photos/
+    /{year}/
+      /{route_id}/
+        /{route_id}_{year}_{lane}_{shortuuid}.{ext}           # Original photo
+        /{route_id}_{year}_{lane}_{shortuuid}_small.{ext}     # Small thumbnail (150x150)
+        /{route_id}_{year}_{lane}_{shortuuid}_medium.{ext}    # Medium thumbnail (400x400)
+        /{route_id}_{year}_{lane}_{shortuuid}_large.{ext}     # Large thumbnail (800x800)
+  ```
+  
+  Example:
+  ```
+  /photos/
+    /2026/
+      /NR-001/
+        /NR-001_2026_L1_a1b2c3d4.jpg         # Original
+        /NR-001_2026_L1_a1b2c3d4_small.jpg    # Small thumbnail
+        /NR-001_2026_L1_a1b2c3d4_medium.jpg   # Medium thumbnail
+        /NR-001_2026_L1_a1b2c3d4_large.jpg    # Large thumbnail
   ```
 
 #### 3.2.2 Storage Operations
@@ -709,7 +801,7 @@ func main() {
 }
 ```
 
-### 5.2 Database Schema (Initial Design)
+### 5.2 Database Schema (Simplified)
 
 ```sql
 -- API Keys table
@@ -727,20 +819,15 @@ CREATE TABLE api_keys (
 -- Pending uploads (for signed URL tracking)
 CREATE TABLE pending_uploads (
     upload_token UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    photo_id UUID NOT NULL UNIQUE,
+    photo_id UUID NOT NULL UNIQUE REFERENCES photos(photo_id),
     api_key_id UUID NOT NULL REFERENCES api_keys(key_id),
-    file_name VARCHAR(255) NOT NULL,
-    content_type VARCHAR(100) NOT NULL CHECK (content_type IN ('image/jpeg', 'image/png')),
-    file_size_bytes BIGINT NOT NULL,
-    gcs_object_name VARCHAR(500),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    completed_at TIMESTAMP WITH TIME ZONE,
-    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'uploaded', 'completed', 'expired'))
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'expired'))
 );
 
-CREATE INDEX idx_pending_uploads_token ON pending_uploads(upload_token) WHERE status = 'pending';
-CREATE INDEX idx_pending_uploads_expires ON pending_uploads(expires_at) WHERE status = 'pending';
+CREATE INDEX idx_pending_uploads_token ON pending_uploads(upload_token);
+CREATE INDEX idx_pending_uploads_api_key ON pending_uploads(api_key_id) WHERE status = 'pending';
 
 -- Photos catalog
 CREATE TABLE photos (
@@ -752,23 +839,17 @@ CREATE TABLE photos (
     latitude DECIMAL(10, 8) NOT NULL CHECK (latitude >= -90 AND latitude <= 90),
     longitude DECIMAL(11, 8) NOT NULL CHECK (longitude >= -180 AND longitude <= 180),
     
-    -- Linear Reference System data
-    sta_value DECIMAL(10, 2) NOT NULL,
-    sta_source VARCHAR(20) NOT NULL CHECK (sta_source IN ('user_provided', 'lrs_interpolated')),
+    -- Linear Reference System data (optional - can be filled by other services)
+    sta_value DECIMAL(10, 2),
+    sta_source VARCHAR(20) CHECK (sta_source IN ('user_provided', 'lrs_interpolated')),
     
     -- Storage paths
-    original_path VARCHAR(500) NOT NULL,
-    thumbnail_small_path VARCHAR(500),
-    thumbnail_medium_path VARCHAR(500),
-    thumbnail_large_path VARCHAR(500),
+    gcs_object_name VARCHAR(500) NOT NULL,
     
     -- File metadata
     file_format VARCHAR(10) NOT NULL CHECK (file_format IN ('JPEG', 'PNG')),
     file_size_bytes BIGINT NOT NULL,
     original_filename VARCHAR(255),
-    
-    -- EXIF data (JSONB for flexibility)
-    exif_data JSONB,
     
     -- User-provided metadata
     description TEXT,
@@ -777,10 +858,6 @@ CREATE TABLE photos (
     -- Upload metadata
     uploaded_by_api_key UUID REFERENCES api_keys(key_id),
     uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Processing status
-    status VARCHAR(20) DEFAULT 'processing' CHECK (status IN ('processing', 'ready', 'failed')),
-    processing_completed_at TIMESTAMP WITH TIME ZONE,
     
     -- Soft delete
     deleted_at TIMESTAMP WITH TIME ZONE,
@@ -795,18 +872,25 @@ CREATE INDEX idx_photos_sta_value ON photos(route_id, sta_value) WHERE deleted_a
 CREATE INDEX idx_photos_route_lane ON photos(route_id, lane_code, sta_value) WHERE deleted_at IS NULL;
 CREATE INDEX idx_photos_coordinates ON photos(latitude, longitude) WHERE deleted_at IS NULL;
 CREATE INDEX idx_photos_uploaded_at ON photos(uploaded_at) WHERE deleted_at IS NULL;
-CREATE INDEX idx_photos_status ON photos(status);
 
 -- Audit log for photo operations
 CREATE TABLE photo_audit_log (
     log_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     photo_id UUID REFERENCES photos(photo_id),
-    operation VARCHAR(20) NOT NULL, -- 'upload_signed_url', 'upload_complete', 'update', 'delete'
+    operation VARCHAR(20) NOT NULL, -- 'upload_signed_url', 'upload_confirm', 'update', 'delete'
     operated_by_api_key UUID REFERENCES api_keys(key_id),
     operated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     operation_details JSONB
 );
 ```
+
+**Schema Changes from Original Design:**
+1. Removed `status` column from photos (no processing status tracking in MVP)
+2. Removed `thumbnail_*_path` columns (thumbnails deferred to future phase)
+3. Removed `exif_data` column (EXIF extraction deferred to future phase)
+4. Simplified `pending_uploads` to store only token, photo_id, api_key_id
+5. Made `sta_value` and `sta_source` nullable (filled by other services later)
+6. Removed `processing_completed_at` column
 
 ### 5.3 Service Architecture
 
@@ -951,7 +1035,7 @@ X-API-Key: {api_key}
 
 #### 6.1.2 Get Signed Upload URL (Phase 1)
 
-**Implementation Note:** Each signed URL is **single-use only**. Once an upload completes successfully, the backend marks the upload_token as "uploaded" and prevents reuse. If a client needs to retry a failed upload, they must request a new signed URL.
+**Note:** Phase 1 now accepts all photo attributes upfront. This allows full validation before generating the signed URL. Only Route ID and Lane Code are required.
 
 ```json
 POST /api/v1/photos/upload-url
@@ -963,6 +1047,12 @@ Request:
     "filename": "survey_photo_001.jpg",
     "content_type": "image/jpeg",
     "file_size_bytes": 2048576
+  },
+  "photo_attributes": {
+    "route_id": "NR-001",
+    "lane_code": "L1",
+    "description": "Road surface damage at kilometer 5",
+    "tags": ["damage", "road_surface"]
   }
 }
 
@@ -970,37 +1060,26 @@ Response (201 Created):
 {
   "upload_token": "uuid-token-for-upload-tracking",
   "signed_url": "https://storage.googleapis.com/bm-survey-photos/...",
-  "gcs_object_name": "originals/2024/01/15/{photo_id}.jpg",
   "photo_id": "pre-generated-uuid",
   "expires_at": "ISO8601 timestamp (15 minutes from now)"
 }
 ```
 
-**Single-Use Enforcement:**
-1. **Database Tracking:** `pending_uploads` table tracks upload_token status
-2. **State Transitions:**
-   - `pending` → Initial state when signed URL is generated
-   - `uploaded` → Marked after successful GCS upload
-   - `completed` → Marked after metadata submission
-   - `expired` → Marked after 15-minute timeout
-
-3. **Validation on Complete:** Backend verifies upload_token is in `uploaded` state (not `pending`, `completed`, or `expired`) before processing metadata
-
-4. **Recovery from Failed Uploads:**
-   - If upload fails (network error, timeout), client must request new signed URL
-   - Old upload_token remains in `pending` state until expiration
-   - Backend cleanup job removes expired tokens automatically
-
-5. **Security Benefits:**
-   - Prevents file overwrites: Same signed URL cannot be used twice
-   - Prevents unauthorized uploads: Token validation checks API key ownership
-   - Audit trail: Every upload attempt is logged and tracked
+**Backend Actions:**
+1. Validate API key
+2. Validate file metadata (size, content type)
+3. Validate photo attributes (route_id, lane_code, coordinates, sta_value)
+4. Check concurrent upload limit (max 10 pending per API key)
+5. Generate photo_id, upload_token, gcs_object_name
+6. Create photo record in database
+7. Create pending_upload record
+8. Generate and return signed URL
 
 **Notes:**
 - Signed URL is valid for 15 minutes
 - Client must upload directly to GCS using the signed URL
-- Upload token must be saved for Phase 2 completion
-- photo_id is pre-generated for client reference
+- Upload token must be saved for Phase 2 confirmation
+- Photo metadata is stored in database during Phase 1
 
 #### 6.1.3 Upload to Google Cloud Storage (Client-Side)
 ```
@@ -1021,77 +1100,38 @@ ETag: "etag-hash"
 - Do NOT include authentication headers (signed URL has auth embedded)
 - Handle CORS configuration in GCS bucket settings
 
-#### 6.1.4 Complete Photo Upload (Phase 2)
+#### 6.1.4 Confirm Upload (Phase 2)
 
-**Note:** The client does NOT send `gcs_object_name` in this request. The server retrieves it from the `pending_uploads` table using the `upload_token`. This ensures the client cannot claim a different file location than what was originally signed.
+**Note:** Phase 2 is a simple confirmation that the client successfully uploaded the file to GCS. All photo metadata was already provided in Phase 1.
 
 ```
-POST /api/v1/photos/complete
+POST /api/v1/photos/confirm
 Content-Type: application/json
 
 Request:
 {
-  "upload_token": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "route_id": "NR-001",
-  "lane_code": "L1",
-  "latitude": -6.2088,
-  "longitude": 106.8456,
-  "sta_value": 5.2,
-  "description": "Road surface damage at kilometer 5",
-  "tags": ["damage", "road_surface"],
-  "upload_timestamp": "2024-01-15T10:30:00Z"
+  "upload_token": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
 }
 
-Response (201 Created):
+Response (200 OK):
 {
   "photo_id": "550e8400-e29b-41d4-a716-446655440000",
-  "route_id": "NR-001",
-  "lane_code": "L1",
-  "latitude": -6.2088,
-  "longitude": 106.8456,
-  "sta_value": 5.2,
-  "sta_source": "user_provided",
-  "file_format": "JPEG",
-  "file_size_bytes": 2048576,
-  "status": "processing",
-  "uploaded_at": "2024-01-15T10:30:00Z",
-  "thumbnail_urls": {
-    "small": null,
-    "medium": null,
-    "large": null
-  },
-  "message": "Photo uploaded successfully. Thumbnails are being generated."
+  "message": "Upload confirmed successfully"
 }
 ```
 
-**Status Values:**
-- `processing`: Photo uploaded, thumbnails being generated
-- `ready`: Photo and thumbnails ready for use
-- `failed`: Processing failed (check photo status endpoint for details)
+**Backend Actions:**
+1. Validate API key
+2. Validate upload_token (exists, not expired, status='pending')
+3. Verify API key matches token record
+4. Verify file exists in GCS at gcs_object_name
+5. Mark pending_upload status as 'completed'
 
-#### 6.1.5 Get Upload Status
-
-```http
-GET /api/v1/photos/{photo_id}/status
-```
-
-**Response (200 OK):**
-```json
-{
-  "photo_id": "uuid",
-  "status": "ready|processing|failed",
-  "thumbnails_ready": true,
-  "exif_extracted": true,
-  "sta_calculated": true,
-  "error_message": null,
-  "processed_at": "ISO8601 timestamp"
-}
-```
-
-**Status Values:**
-- `processing`: Photo uploaded, thumbnails being generated
-- `ready`: Photo and thumbnails ready for use
-- `failed`: Processing failed (check photo status endpoint for details)
+**Error Responses:**
+- 400 Bad Request: Invalid or missing upload_token
+- 404 Not Found: Token not found
+- 409 Conflict: Token already used or expired
+- 404 Not Found: File not found in GCS
 
 ### 6.1.6 Benefits of Two-Phase Upload Architecture
 
@@ -1907,7 +1947,7 @@ message PhotoMetadata {
 2. Verify upload_token.status == 'uploaded' (NOT pending, completed, or expired)
 3. Verify upload_token not expired (created_at + 15 minutes > now)
 4. Verify API key matches token record
-5. Retrieve gcs_object_name from token record (client does NOT send this)
+5. Retrieve gcs_object_name from photo record (client does NOT send this)
 6. Mark token as 'processing' (prevents concurrent completions)
 7. Verify file exists in GCS at gcs_object_name
 8. Process metadata and generate thumbnails
@@ -2080,8 +2120,8 @@ curl -X POST https://api.bina-marga.survey/v1/photos/upload-url \
 ```json
 {
   "upload_token": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "signed_url": "https://storage.googleapis.com/bm-survey-photos-dev/originals/NR-001/2024/01/15/NR-001_2024_5.2_L1.jpg?Expires=1705312800&Signature=...",
-  "gcs_object_name": "originals/NR-001/2024/01/15/NR-001_2024_5.2_L1.jpg",
+  "signed_url": "https://storage.googleapis.com/bm-survey-photos-dev/photos/2024/NR-001/NR-001_2024_L1_a1b2c3d4.jpg?Expires=1705312800&Signature=...",
+  "gcs_object_name": "photos/2024/NR-001/NR-001_2024_L1_a1b2c3d4.jpg",
   "photo_id": "550e8400-e29b-41d4-a716-446655440000",
   "expires_at": "2024-01-15T10:45:00Z"
 }
@@ -2093,7 +2133,7 @@ curl -X POST https://api.bina-marga.survey/v1/photos/upload-url \
 
 **Using curl (for testing):**
 ```bash
-curl -X PUT "https://storage.googleapis.com/bm-survey-photos-dev/originals/NR-001/2024/01/15/NR-001_2024_5.2_L1.jpg?Expires=1705312800&Signature=..." \
+curl -X PUT "https://storage.googleapis.com/bm-survey-photos-dev/photos/2024/NR-001/NR-001_2024_L1_a1b2c3d4.jpg?Expires=1705312800&Signature=..." \
   -H "Content-Type: image/jpeg" \
   --data-binary "@/path/to/survey_photo_001.jpg"
 ```
@@ -2118,7 +2158,7 @@ curl -X POST https://api.bina-marga.survey/v1/photos/complete \
   }'
 ```
 
-**Note:** The client does NOT send `gcs_object_name`. The server retrieves it from the `pending_uploads` table using the `upload_token`.
+**Note:** The client does NOT send `gcs_object_name`. The server retrieves it from the `photos` table using the `photo_id` associated with the `upload_token`.
 
 **Response:**
 ```json
@@ -2206,7 +2246,7 @@ export const PhotoUpload: React.FC = () => {
       signedUrl: data.signed_url,
       photoId: data.photo_id
       // Note: gcs_object_name is returned but not needed by client
-      // The server tracks it via upload_token
+      // The server tracks it via photo_id linked to upload_token
     };
   };
 

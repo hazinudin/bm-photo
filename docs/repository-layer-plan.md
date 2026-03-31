@@ -1,8 +1,8 @@
 # Repository Layer Implementation Plan
 
-**Version:** 1.2  
-**Date:** March 27, 2026  
-**Status:** Implementation Complete ✅
+**Version:** 1.3  
+**Date:** March 31, 2026  
+**Status:** Implementation Complete ✅ (Updated for Simplified Architecture)
 
 ---
 
@@ -23,6 +23,8 @@ This document outlines the comprehensive implementation plan for the repository 
 - ✅ PostgreSQL implementations - `internal/repository/postgres/`
 - ✅ Database migrations - `migrations/`
 - ⏳ Repository unit/integration tests (pending)
+
+**Updated:** Simplified architecture - removed photo status tracking, deferred processing fields.
 
 **Dependencies:**
 - pgx v5 for PostgreSQL driver ✅
@@ -79,14 +81,7 @@ type PhotoRepository interface {
     // Restore recovers a soft-deleted photo
     Restore(ctx context.Context, id vo.PhotoID) error
     
-    // UpdateProcessingStatus updates status and thumbnail paths after processing
-    UpdateProcessingStatus(ctx context.Context, id vo.PhotoID, status vo.PhotoStatus, 
-        thumbnailPaths entity.ThumbnailPaths) error
-    
-    // UpdateEXIFData stores extracted EXIF metadata
-    UpdateEXIFData(ctx context.Context, id vo.PhotoID, exifData *entity.EXIFData) error
-    
-    // UpdateSTA updates STA value and source after LRS calculation
+    // UpdateSTA updates STA value and source (called by LRS integration later)
     UpdateSTA(ctx context.Context, id vo.PhotoID, staValue float64, source vo.STASource) error
     
     // Browse retrieves photos with filtering and pagination
@@ -115,7 +110,6 @@ type SearchFilter struct {
     DateStart  *time.Time
     DateEnd    *time.Time
     Tags       []string
-    HasEXIFGPS *bool
     Page       int
     PerPage    int
 }
@@ -133,6 +127,11 @@ type BrowseResult struct {
 }
 ```
 
+**Removed from previous version:**
+- `UpdateProcessingStatus` method (processing status removed for MVP)
+- `UpdateEXIFData` method (EXIF extraction deferred)
+- `HasEXIFGPS` filter (EXIF extraction deferred)
+
 ### 2. PendingUploadRepository
 
 ```go
@@ -147,10 +146,7 @@ type PendingUploadRepository interface {
     // GetByPhotoID retrieves pending upload by photo ID
     GetByPhotoID(ctx context.Context, photoID vo.PhotoID) (*PendingUpload, error)
     
-    // MarkAsUploaded updates status to 'uploaded' after GCS upload
-    MarkAsUploaded(ctx context.Context, token vo.UploadToken) error
-    
-    // MarkAsCompleted updates status to 'completed' after processing
+    // MarkAsCompleted updates status to 'completed' after GCS upload confirmation
     MarkAsCompleted(ctx context.Context, token vo.UploadToken) error
     
     // MarkAsExpired marks expired tokens
@@ -169,21 +165,21 @@ type PendingUploadRepository interface {
     GetExpired(ctx context.Context, before time.Time) ([]*PendingUpload, error)
 }
 
-// PendingUpload entity for database
+// PendingUpload entity for database (simplified)
 type PendingUpload struct {
-    UploadToken   vo.UploadToken
-    PhotoID       vo.PhotoID
-    APIKeyID      string
-    Filename      string
-    ContentType   string
-    FileSizeBytes int64
-    GCSObjectName string
-    CreatedAt     time.Time
-    ExpiresAt     time.Time
-    CompletedAt   *time.Time
-    Status        vo.UploadStatus
+    UploadToken vo.UploadToken
+    PhotoID     vo.PhotoID
+    APIKeyID    string
+    CreatedAt   time.Time
+    ExpiresAt   time.Time
+    Status      vo.UploadStatus
 }
 ```
+
+**Changes from previous version:**
+- Removed `Filename`, `ContentType`, `FileSizeBytes`, `GCSObjectName`, `CompletedAt` fields
+- Simplified to store only token tracking data (photo metadata is in photos table)
+- Removed `MarkAsUploaded` method (uploaded state no longer tracked)
 
 ### 3. APIKeyRepository
 
@@ -258,23 +254,27 @@ type AuditLogEntry struct {
 | Entity | Table | Primary Key | Notes |
 |--------|-------|-------------|-------|
 | Photo | photos | photo_id (UUID) | Soft delete with deleted_at |
-| PendingUpload | pending_uploads | upload_token (UUID) | Expires after 15 minutes |
+| PendingUpload | pending_uploads | upload_token (UUID) | Simplified - token tracking only |
 | APIKey | api_keys | key_id (UUID) | Hashed key storage |
 | AuditLog | photo_audit_log | log_id (UUID) | Immutable log |
+
+**Schema Changes:**
+- Photos table no longer has `status` column (processing tracking removed)
+- Photos table no longer has thumbnail paths or EXIF data columns
+- `sta_value` and `sta_source` are now nullable
+- `pending_uploads` simplified to store only token, photo_id, api_key_id
 
 ### Indexes Required
 
 ```sql
 -- Photo table indexes
 CREATE INDEX idx_photos_route_sta ON photos(route_id, sta_value) WHERE deleted_at IS NULL;
-CREATE INDEX idx_photos_route_lane_sta ON photos(route_id, lane_number, sta_value) WHERE deleted_at IS NULL;
+CREATE INDEX idx_photos_route_lane_sta ON photos(route_id, lane_code, sta_value) WHERE deleted_at IS NULL;
 CREATE INDEX idx_photos_uploaded_by ON photos(uploaded_by_api_key) WHERE deleted_at IS NULL;
-CREATE INDEX idx_photos_status ON photos(status) WHERE deleted_at IS NULL;
 
 -- Pending uploads indexes
-CREATE INDEX idx_pending_uploads_token ON pending_uploads(upload_token) WHERE status = 'pending';
-CREATE INDEX idx_pending_uploads_expires ON pending_uploads(expires_at) WHERE status = 'pending';
-CREATE INDEX idx_pending_uploads_api_key ON pending_uploads(api_key_id) WHERE status IN ('pending', 'uploaded');
+CREATE INDEX idx_pending_uploads_token ON pending_uploads(upload_token);
+CREATE INDEX idx_pending_uploads_api_key ON pending_uploads(api_key_id) WHERE status = 'pending';
 
 -- API keys indexes
 CREATE INDEX idx_api_keys_hash ON api_keys(key_hash);
@@ -514,10 +514,17 @@ Create under `migrations/`:
 - [x] Integration tests with PostgreSQL
 - [x] Migration files created for schema
 
+**Schema Updates Needed:**
+The current repository implementations may need updates to align with the simplified schema:
+- Remove `status` column references from PhotoRepository
+- Remove thumbnail path and EXIF data storage methods
+- Simplify PendingUploadRepository to work with reduced fields
+
 **Current Status:**
 - ✅ Domain layer complete (prerequisite)
 - ✅ Repository interfaces - Complete
 - ✅ Repository implementations - Complete
-- ✅ Integration tests - Complete (30 tests)
+- ⏳ Repository schema alignment needed for simplified architecture
 - ⏳ Unit tests with pgxmock - Pending
-- ✅ Migrations - Complete
+- ✅ Integration tests - Complete (30 tests)
+- ✅ Migrations - Complete (need update for simplified schema)
