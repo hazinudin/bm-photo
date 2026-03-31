@@ -205,7 +205,7 @@ Return to client                                         │
     ├─ signed_url (for uploading to GCS)                 │
     ├─ upload_token (for confirmation request)           │
     └─ photo_id (for client reference)                   │
-─────────────────────────────────────────────────────────────────┘
+─────────────────────────────────────────────────────────┘
 
 Phase 2: Confirm Upload
 ─────────────────────────────────────────────────────────────────┐
