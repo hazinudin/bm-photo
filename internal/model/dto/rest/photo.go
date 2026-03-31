@@ -14,27 +14,14 @@ type PhotoResponse struct {
 	LaneCode      string        `json:"lane_code"`
 	Latitude      float64       `json:"latitude"`
 	Longitude     float64       `json:"longitude"`
-	STAValue      float64       `json:"sta_value"`
-	STASource     vo.STASource  `json:"sta_source"`
+	STAValue      *float64      `json:"sta_value,omitempty"`
+	STASource     *vo.STASource `json:"sta_source,omitempty"`
 	FileFormat    vo.FileFormat `json:"file_format"`
 	FileSizeBytes int64         `json:"file_size_bytes"`
-	EXIFData      *EXIFDataDTO  `json:"exif_data,omitempty"`
 	Description   *string       `json:"description,omitempty"`
 	Tags          []string      `json:"tags"`
 	UploadedAt    time.Time     `json:"uploaded_at"`
 	DownloadURL   string        `json:"download_url"`
-	ThumbnailURLs ThumbnailURLs `json:"thumbnail_urls"`
-}
-
-// EXIFDataDTO contains extracted EXIF metadata.
-type EXIFDataDTO struct {
-	Timestamp    *time.Time `json:"timestamp,omitempty"`
-	CameraMake   *string    `json:"camera_make,omitempty"`
-	CameraModel  *string    `json:"camera_model,omitempty"`
-	GPSLatitude  *float64   `json:"gps_latitude,omitempty"`
-	GPSLongitude *float64   `json:"gps_longitude,omitempty"`
-	Altitude     *float64   `json:"altitude,omitempty"`
-	Orientation  *int       `json:"orientation,omitempty"`
 }
 
 // UpdatePhotoRequest - Update photo metadata.
