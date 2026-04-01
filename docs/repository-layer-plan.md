@@ -1,8 +1,8 @@
 # Repository Layer Implementation Plan
 
-**Version:** 1.3  
-**Date:** March 31, 2026  
-**Status:** Implementation Complete ✅ (Updated for Simplified Architecture)
+**Version:** 1.4  
+**Date:** April 1, 2026  
+**Status:** Implementation Complete ✅ (Updated for Retry Endpoint Support)
 
 ---
 
@@ -92,6 +92,17 @@ type PhotoRepository interface {
     
     // Exists checks if a photo exists
     Exists(ctx context.Context, id vo.PhotoID) (bool, error)
+    
+    // Upload tracking methods (new for retry endpoint support)
+    
+    // UpdateUploadStatus updates the upload status of a photo
+    UpdateUploadStatus(ctx context.Context, id vo.PhotoID, status entity.PhotoUploadStatus) error
+    
+    // IncrementRetryCount increments the retry count for a photo
+    IncrementRetryCount(ctx context.Context, id vo.PhotoID) error
+    
+    // FindPendingByIDAndAPIKey retrieves a pending photo by ID and verifies API key ownership
+    FindPendingByIDAndAPIKey(ctx context.Context, id vo.PhotoID, apiKeyID string) (*entity.Photo, error)
 }
 
 type BrowseFilter struct {
@@ -163,6 +174,9 @@ type PendingUploadRepository interface {
     
     // GetExpired retrieves tokens eligible for cleanup
     GetExpired(ctx context.Context, before time.Time) ([]*PendingUpload, error)
+    
+    // ExpireTokensByPhotoID marks all pending tokens for a photo as expired (for retry endpoint)
+    ExpireTokensByPhotoID(ctx context.Context, photoID vo.PhotoID) error
 }
 
 // PendingUpload entity for database (simplified)
@@ -259,10 +273,11 @@ type AuditLogEntry struct {
 | AuditLog | photo_audit_log | log_id (UUID) | Immutable log |
 
 **Schema Changes:**
-- Photos table no longer has `status` column (processing tracking removed)
+- ~~Photos table no longer has `status` column~~ **Added**: `upload_status` and `retry_count` columns for retry endpoint support
 - Photos table no longer has thumbnail paths or EXIF data columns
 - `sta_value` and `sta_source` are now nullable
 - `pending_uploads` simplified to store only token, photo_id, api_key_id
+- **Migration 000003** adds `upload_status` (ENUM: pending/completed/expired) and `retry_count` (0-5) to photos table
 
 ### Indexes Required
 
@@ -271,6 +286,7 @@ type AuditLogEntry struct {
 CREATE INDEX idx_photos_route_sta ON photos(route_id, sta_value) WHERE deleted_at IS NULL;
 CREATE INDEX idx_photos_route_lane_sta ON photos(route_id, lane_code, sta_value) WHERE deleted_at IS NULL;
 CREATE INDEX idx_photos_uploaded_by ON photos(uploaded_by_api_key) WHERE deleted_at IS NULL;
+CREATE INDEX idx_photos_upload_status ON photos(upload_status) WHERE deleted_at IS NULL;
 
 -- Pending uploads indexes
 CREATE INDEX idx_pending_uploads_token ON pending_uploads(upload_token);
@@ -517,19 +533,21 @@ Create under `migrations/`:
 - [x] Transaction support infrastructure ready
 - [ ] Unit tests with pgxmock
 - [x] Integration tests with PostgreSQL
-- [x] Migration files created for schema (000001_init_schema, 000002_simplify_upload_schema)
+- [x] Migration files created for schema (000001_init_schema, 000002_simplify_upload_schema, 000003_add_upload_retry_columns)
 
 **Schema Updates Complete:**
-The repository implementations have been updated to align with the simplified schema:
-- ✅ Remove `status` column references from PhotoRepository
+The repository implementations have been updated to align with the retry endpoint requirements:
+- ✅ Add `upload_status` and `retry_count` column support to PhotoRepository
+- ✅ Add `UpdateUploadStatus`, `IncrementRetryCount`, `FindPendingByIDAndAPIKey` methods to PhotoRepository
+- ✅ Add `ExpireTokensByPhotoID` method to PendingUploadRepository
 - ✅ Remove thumbnail path and EXIF data storage methods
 - ✅ Simplify PendingUploadRepository to work with reduced fields
-- ✅ Migration 000002_simplify_upload_schema created
+- ✅ Migration 000003_add_upload_retry_columns created
 
 **Current Status:**
 - ✅ Domain layer complete (prerequisite)
-- ✅ Repository interfaces - Complete
-- ✅ Repository implementations - Complete (aligned with simplified schema)
+- ✅ Repository interfaces - Complete (updated for retry support)
+- ✅ Repository implementations - Complete (aligned with retry endpoint requirements)
 - ✅ Integration tests - Complete (30 tests, updated for simplified schema)
-- ✅ Migrations - Complete
+- ✅ Migrations - Complete (3 migrations including retry support)
 - ⏳ Unit tests with pgxmock - Pending

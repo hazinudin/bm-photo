@@ -1,8 +1,8 @@
 # Domain Layer Development Plan
 
-**Version:** 1.2  
-**Date:** March 31, 2026  
-**Status:** ✅ Implementation Complete (Updated for Simplified Architecture)
+**Version:** 1.3  
+**Date:** April 1, 2026  
+**Status:** ✅ Implementation Complete (Updated for Retry Endpoint Support)
 
 ---
 
@@ -392,6 +392,24 @@ import (
 	"github.com/bina-marga/survey-photo/internal/model/vo"
 )
 
+// PhotoUploadStatus represents the upload lifecycle status
+type PhotoUploadStatus string
+
+const (
+    PhotoUploadStatusPending   PhotoUploadStatus = "pending"
+    PhotoUploadStatusCompleted PhotoUploadStatus = "completed"
+    PhotoUploadStatusExpired   PhotoUploadStatus = "expired"
+)
+
+func (s PhotoUploadStatus) IsValid() bool {
+    switch s {
+    case PhotoUploadStatusPending, PhotoUploadStatusCompleted, PhotoUploadStatusExpired:
+        return true
+    default:
+        return false
+    }
+}
+
 // Photo represents a survey photo in the catalog.
 // It is the aggregate root and stores all photo metadata.
 type Photo struct {
@@ -418,6 +436,10 @@ type Photo struct {
     // User-provided metadata
     description *string
     tags        []string
+
+    // Upload tracking (new fields for retry support)
+    uploadStatus PhotoUploadStatus
+    retryCount   int
 
     // Upload metadata
     uploadToken vo.UploadToken
@@ -452,11 +474,16 @@ type PhotoParams struct {
 }
 
 var (
-	ErrInvalidRouteID     = errors.New("route_id is required")
-	ErrInvalidLaneCode    = errors.New("lane_code must be in format L1-L10 or R1-R10")
-	ErrInvalidFileSize    = errors.New("file_size_bytes must be greater than 0")
-	ErrPhotoDeleted       = errors.New("photo has been deleted")
-	ErrInvalidAPIKeyID    = errors.New("invalid API key ID")
+	ErrInvalidRouteID          = errors.New("route_id is required")
+	ErrInvalidLaneCode         = errors.New("lane_code must be in format L1-L10 or R1-R10")
+	ErrInvalidFileSize         = errors.New("file_size_bytes must be greater than 0")
+	ErrPhotoDeleted            = errors.New("photo has been deleted")
+	ErrInvalidAPIKeyID         = errors.New("invalid API key ID")
+	ErrPhotoNotFound           = errors.New("photo not found")
+	ErrPhotoAlreadyCompleted   = errors.New("photo has already been uploaded and confirmed")
+	ErrPhotoNotOwned           = errors.New("photo was created by a different API key")
+	ErrRetryLimitExceeded      = errors.New("maximum retry attempts exceeded")
+	ErrPhotoNotPending         = errors.New("photo is not in pending status")
 )
 
 // NewPhoto creates a new Photo entity with validation
@@ -548,9 +575,28 @@ func (p *Photo) UpdatedAt() time.Time               { return p.updatedAt }
 func (p *Photo) DeletedAt() *time.Time              { return p.deletedAt }
 func (p *Photo) DeletedBy() *string                 { return p.deletedBy }
 
+// Upload tracking getters (new for retry support)
+func (p *Photo) UploadStatus() PhotoUploadStatus  { return p.uploadStatus }
+func (p *Photo) RetryCount() int                   { return p.retryCount }
+
 // IsDeleted returns true if photo has been soft deleted
 func (p *Photo) IsDeleted() bool {
     return p.deletedAt != nil
+}
+
+// IsUploadPending returns true if photo upload is pending
+func (p *Photo) IsUploadPending() bool {
+    return p.uploadStatus == PhotoUploadStatusPending
+}
+
+// IsUploadCompleted returns true if photo upload is completed
+func (p *Photo) IsUploadCompleted() bool {
+    return p.uploadStatus == PhotoUploadStatusCompleted
+}
+
+// CanRetryUpload checks if photo can be retried (pending status and retry count < 5)
+func (p *Photo) CanRetryUpload() bool {
+    return p.uploadStatus == PhotoUploadStatusPending && p.retryCount < 5
 }
 
 // HasSTA returns true if STA value has been set
@@ -629,15 +675,71 @@ func (p *Photo) Restore() error {
     p.updatedAt = time.Now()
     return nil
 }
+
+// Upload Tracking Methods (new for retry support)
+
+// MarkUploadCompleted marks the photo upload as completed
+func (p *Photo) MarkUploadCompleted() error {
+    if p.IsDeleted() {
+        return ErrPhotoDeleted
+    }
+    if p.uploadStatus == PhotoUploadStatusCompleted {
+        return ErrPhotoAlreadyCompleted
+    }
+    p.uploadStatus = PhotoUploadStatusCompleted
+    p.updatedAt = time.Now()
+    return nil
+}
+
+// MarkUploadExpired marks the photo upload as expired
+func (p *Photo) MarkUploadExpired() error {
+    if p.IsDeleted() {
+        return ErrPhotoDeleted
+    }
+    if p.uploadStatus == PhotoUploadStatusCompleted {
+        return ErrPhotoAlreadyCompleted
+    }
+    p.uploadStatus = PhotoUploadStatusExpired
+    p.updatedAt = time.Now()
+    return nil
+}
+
+// IncrementRetryCount increments the retry count for upload retries
+func (p *Photo) IncrementRetryCount() error {
+    if p.IsDeleted() {
+        return ErrPhotoDeleted
+    }
+    if p.retryCount >= 5 {
+        return ErrRetryLimitExceeded
+    }
+    p.retryCount++
+    p.updatedAt = time.Now()
+    return nil
+}
+
+// VerifyOwnership checks if the given API key is the owner of this photo
+func (p *Photo) VerifyOwnership(apiKeyID string) error {
+    if p.uploadedBy != apiKeyID {
+        return ErrPhotoNotOwned
+    }
+    return nil
+}
 ```
+
+**Added for retry endpoint support:**
+- `uploadStatus` field (PhotoUploadStatus: pending/completed/expired) for upload lifecycle tracking
+- `retryCount` field (int, 0-5) for tracking upload retry attempts
+- `UploadStatus()`, `RetryCount()`, `IsUploadPending()`, `IsUploadCompleted()`, `CanRetryUpload()` getter methods
+- `MarkUploadCompleted()`, `MarkUploadExpired()`, `IncrementRetryCount()`, `VerifyOwnership()` business methods
+- Photo upload status error types: `ErrPhotoNotFound`, `ErrPhotoAlreadyCompleted`, `ErrPhotoNotOwned`, `ErrRetryLimitExceeded`, `ErrPhotoNotPending`
+- `GetNewSignedURLResponse` DTO for retry endpoint
 
 **Removed from previous version:**
 - `status` field (processing status tracking removed for MVP)
 - `exifData` field (EXIF extraction deferred)
 - `thumbnailSmallPath`, `thumbnailMediumPath`, `thumbnailLargePath` fields (thumbnails deferred)
 - `processingCompletedAt` field
-- `uploadStatus` field and related methods
-- `MarkUploadComplete()`, `MarkProcessingComplete()`, `MarkProcessingFailed()` methods
+- `MarkProcessingComplete()`, `MarkProcessingFailed()` methods
 - `IsReady()`, `IsProcessing()`, `IsFailed()` methods
 - `GenerateGCSObjectName()`, `GenerateThumbnailPaths()`, `GenerateOriginalPath()` methods (GCS object name is now passed as a parameter)
 
@@ -741,6 +843,16 @@ type GetSignedUploadURLResponse struct {
     SignedURL   string        `json:"signed_url"`
     PhotoID     vo.PhotoID    `json:"photo_id"`
     ExpiresAt   time.Time     `json:"expires_at"`
+}
+
+// GetNewSignedURLResponse - Retry Response with new signed URL for existing photo
+type GetNewSignedURLResponse struct {
+    PhotoID     vo.PhotoID `json:"photo_id"`
+    UploadToken vo.UploadToken `json:"upload_token"`
+    SignedURL   string     `json:"signed_url"`
+    ExpiresAt   time.Time  `json:"expires_at"`
+    RetryCount  int        `json:"retry_count"`
+    MaxRetries  int        `json:"max_retries"`
 }
 
 // ConfirmUploadRequest - Phase 2: Confirm successful GCS upload
@@ -943,8 +1055,11 @@ import (
 
 // Domain errors - Photo
 var (
-    ErrPhotoNotFound       = errors.New("photo not found")
-    ErrPhotoAlreadyDeleted = errors.New("photo already deleted")
+    ErrPhotoNotFound         = errors.New("photo not found")
+    ErrPhotoAlreadyDeleted   = errors.New("photo already deleted")
+    ErrPhotoAlreadyCompleted = errors.New("photo has already been uploaded and confirmed")
+    ErrPhotoNotOwned         = errors.New("photo was created by a different API key")
+    ErrPhotoNotPending       = errors.New("photo is not in pending status")
 )
 
 // Domain errors - Upload
@@ -954,6 +1069,7 @@ var (
     ErrUploadTokenAlreadyUsed  = errors.New("upload token has already been used")
     ErrUploadTokenInvalidState = errors.New("upload token is in invalid state")
     ErrUploadInProgress        = errors.New("upload is already in progress")
+    ErrRetryLimitExceeded      = errors.New("maximum retry attempts exceeded")
 )
 
 // Domain errors - File
@@ -1034,6 +1150,7 @@ const (
 const (
     UploadTokenExpiryMinutes = 15
     MaxPendingUploadsPerKey  = 10
+    MaxRetriesPerPhoto       = 5
 )
 
 // Pagination defaults
