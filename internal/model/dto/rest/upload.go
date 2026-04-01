@@ -95,3 +95,13 @@ type ConfirmUploadResponse struct {
 	PhotoID vo.PhotoID `json:"photo_id"`
 	Message string     `json:"message"`
 }
+
+// GetNewSignedURLResponse - Response for retry endpoint with new signed URL.
+type GetNewSignedURLResponse struct {
+	PhotoID     vo.PhotoID     `json:"photo_id"`
+	UploadToken vo.UploadToken `json:"upload_token"`
+	SignedURL   string         `json:"signed_url"`
+	ExpiresAt   time.Time      `json:"expires_at"`
+	RetryCount  int            `json:"retry_count"`
+	MaxRetries  int            `json:"max_retries"`
+}

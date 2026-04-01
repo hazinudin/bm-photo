@@ -201,6 +201,20 @@ func (r *PendingUploadRepository) GetExpired(ctx context.Context, before time.Ti
 	return r.scanPendingUploads(rows)
 }
 
+func (r *PendingUploadRepository) ExpireTokensByPhotoID(ctx context.Context, photoID vo.PhotoID) error {
+	query := `
+		UPDATE pending_uploads SET
+			status = $2
+		WHERE photo_id = $1 AND status = 'pending'`
+
+	_, err := r.db.Pool().Exec(ctx, query, photoID.String(), vo.UploadStatusExpired.String())
+	if err != nil {
+		return fmt.Errorf("failed to expire tokens: %w", err)
+	}
+
+	return nil
+}
+
 func (r *PendingUploadRepository) scanPendingUpload(row pgx.Row) (*repository.PendingUpload, error) {
 	var p pendingUploadRow
 	err := row.Scan(

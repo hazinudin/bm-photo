@@ -41,6 +41,7 @@ type photoRow struct {
 	Tags             []string
 	UploadToken      string
 	UploadStatus     string
+	RetryCount       int
 	UploadedBy       string
 	UploadedAt       time.Time
 	CreatedAt        time.Time
@@ -96,6 +97,7 @@ func (r *photoRow) toEntity() (*entity.Photo, error) {
 		Tags:             r.Tags,
 		UploadToken:      uploadToken,
 		UploadStatus:     uploadStatus,
+		RetryCount:       r.RetryCount,
 		UploadedBy:       r.UploadedBy,
 		UploadedAt:       r.UploadedAt,
 		CreatedAt:        r.CreatedAt,
@@ -166,7 +168,7 @@ func (r *PhotoRepository) GetByID(ctx context.Context, id vo.PhotoID) (*entity.P
 			sta_value, sta_source, gcs_object_name,
 			file_format, file_size_bytes, original_filename,
 			description, tags,
-			upload_token, upload_status, uploaded_by, uploaded_at,
+			upload_token, upload_status, retry_count, uploaded_by, uploaded_at,
 			created_at, updated_at,
 			deleted_at, deleted_by
 		FROM photos
@@ -183,7 +185,7 @@ func (r *PhotoRepository) GetByUploadToken(ctx context.Context, token vo.UploadT
 			sta_value, sta_source, gcs_object_name,
 			file_format, file_size_bytes, original_filename,
 			description, tags,
-			upload_token, upload_status, uploaded_by, uploaded_at,
+			upload_token, upload_status, retry_count, uploaded_by, uploaded_at,
 			created_at, updated_at,
 			deleted_at, deleted_by
 		FROM photos
@@ -375,7 +377,7 @@ func (r *PhotoRepository) Browse(ctx context.Context, filter repository.BrowseFi
 			sta_value, sta_source, gcs_object_name,
 			file_format, file_size_bytes, original_filename,
 			description, tags,
-			upload_token, upload_status, uploaded_by, uploaded_at,
+			upload_token, upload_status, retry_count, uploaded_by, uploaded_at,
 			created_at, updated_at,
 			deleted_at, deleted_by
 		FROM photos
@@ -490,7 +492,7 @@ func (r *PhotoRepository) Search(ctx context.Context, filter repository.SearchFi
 			sta_value, sta_source, gcs_object_name,
 			file_format, file_size_bytes, original_filename,
 			description, tags,
-			upload_token, upload_status, uploaded_by, uploaded_at,
+			upload_token, upload_status, retry_count, uploaded_by, uploaded_at,
 			created_at, updated_at,
 			deleted_at, deleted_by
 		FROM photos
@@ -531,6 +533,125 @@ func (r *PhotoRepository) Exists(ctx context.Context, id vo.PhotoID) (bool, erro
 	return exists, nil
 }
 
+func (r *PhotoRepository) UpdateUploadStatus(ctx context.Context, id vo.PhotoID, status vo.UploadStatus) error {
+	query := `
+		UPDATE photos SET
+			upload_status = $2,
+			updated_at = $3
+		WHERE photo_id = $1 AND deleted_at IS NULL`
+
+	result, err := r.db.Pool().Exec(ctx, query, id.String(), status.String(), time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to update upload status: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return repository.ErrPhotoNotFound
+	}
+
+	return nil
+}
+
+func (r *PhotoRepository) IncrementRetryCount(ctx context.Context, id vo.PhotoID) error {
+	// First check if the photo exists and get current retry count
+	query := `
+		SELECT retry_count FROM photos
+		WHERE photo_id = $1 AND deleted_at IS NULL`
+
+	var currentCount int
+	err := r.db.Pool().QueryRow(ctx, query, id.String()).Scan(&currentCount)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return repository.ErrPhotoNotFound
+		}
+		return fmt.Errorf("failed to get retry count: %w", err)
+	}
+
+	// Check if max retries exceeded
+	if currentCount >= 5 {
+		return repository.ErrRetryLimitExceeded
+	}
+
+	// Atomically increment the retry count
+	updateQuery := `
+		UPDATE photos SET
+			retry_count = retry_count + 1,
+			updated_at = $2
+		WHERE photo_id = $1 AND deleted_at IS NULL AND retry_count < 5`
+
+	result, err := r.db.Pool().Exec(ctx, updateQuery, id.String(), time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to increment retry count: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		// This can happen if another request incremented between our check and update
+		return repository.ErrRetryLimitExceeded
+	}
+
+	return nil
+}
+
+func (r *PhotoRepository) FindPendingByIDAndAPIKey(ctx context.Context, id vo.PhotoID, apiKeyID string) (*entity.Photo, error) {
+	query := `
+		SELECT photo_id, route_id, lane_code, latitude, longitude,
+			sta_value, sta_source, gcs_object_name,
+			file_format, file_size_bytes, original_filename,
+			description, tags,
+			upload_token, upload_status, retry_count, uploaded_by, uploaded_at,
+			created_at, updated_at,
+			deleted_at, deleted_by
+		FROM photos
+		WHERE photo_id = $1 AND deleted_at IS NULL AND upload_status = 'pending'`
+
+	row := r.db.Pool().QueryRow(ctx, query, id.String())
+
+	var p photoRow
+	err := row.Scan(
+		&p.PhotoID,
+		&p.RouteID,
+		&p.LaneCode,
+		&p.Latitude,
+		&p.Longitude,
+		&p.StaValue,
+		&p.StaSource,
+		&p.GCSObjectName,
+		&p.FileFormat,
+		&p.FileSizeBytes,
+		&p.OriginalFilename,
+		&p.Description,
+		&p.Tags,
+		&p.UploadToken,
+		&p.UploadStatus,
+		&p.RetryCount,
+		&p.UploadedBy,
+		&p.UploadedAt,
+		&p.CreatedAt,
+		&p.UpdatedAt,
+		&p.DeletedAt,
+		&p.DeletedBy,
+	)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, repository.ErrPhotoNotFound
+		}
+		return nil, fmt.Errorf("failed to scan photo: %w", err)
+	}
+
+	photo, err := p.toEntity()
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify API key ownership
+	if photo.UploadedBy() != apiKeyID {
+		return nil, repository.ErrPhotoNotOwned
+	}
+
+	return photo, nil
+}
+
 func (r *PhotoRepository) scanPhoto(row pgx.Row) (*entity.Photo, error) {
 	var p photoRow
 	err := row.Scan(
@@ -549,6 +670,7 @@ func (r *PhotoRepository) scanPhoto(row pgx.Row) (*entity.Photo, error) {
 		&p.Tags,
 		&p.UploadToken,
 		&p.UploadStatus,
+		&p.RetryCount,
 		&p.UploadedBy,
 		&p.UploadedAt,
 		&p.CreatedAt,
@@ -588,6 +710,7 @@ func (r *PhotoRepository) scanPhotos(rows pgx.Rows) ([]*entity.Photo, error) {
 			&p.Tags,
 			&p.UploadToken,
 			&p.UploadStatus,
+			&p.RetryCount,
 			&p.UploadedBy,
 			&p.UploadedAt,
 			&p.CreatedAt,

@@ -43,6 +43,18 @@ type PhotoRepository interface {
 
 	// Exists checks if a photo with the given ID exists.
 	Exists(ctx context.Context, id vo.PhotoID) (bool, error)
+
+	// UpdateUploadStatus updates the upload status of a photo.
+	UpdateUploadStatus(ctx context.Context, id vo.PhotoID, status vo.UploadStatus) error
+
+	// IncrementRetryCount increments the retry count for a photo.
+	// Returns ErrRetryLimitExceeded if the maximum retry count (5) has been reached.
+	IncrementRetryCount(ctx context.Context, id vo.PhotoID) error
+
+	// FindPendingByIDAndAPIKey retrieves a pending photo by ID and verifies API key ownership.
+	// Returns ErrPhotoNotFound if the photo does not exist or is not pending.
+	// Returns ErrPhotoNotOwned if the photo belongs to a different API key.
+	FindPendingByIDAndAPIKey(ctx context.Context, id vo.PhotoID, apiKeyID string) (*entity.Photo, error)
 }
 
 // BrowseFilter contains filter options for browsing photos.
@@ -150,6 +162,10 @@ type PendingUploadRepository interface {
 
 	// GetExpired retrieves all expired uploads before the given time.
 	GetExpired(ctx context.Context, before time.Time) ([]*PendingUpload, error)
+
+	// ExpireTokensByPhotoID marks all pending tokens for a photo as expired.
+	// This is used by the retry endpoint to invalidate existing tokens before generating new ones.
+	ExpireTokensByPhotoID(ctx context.Context, photoID vo.PhotoID) error
 }
 
 // PendingUpload represents a pending upload record in the database.

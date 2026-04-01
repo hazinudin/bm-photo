@@ -7,8 +7,11 @@ import (
 
 // Domain errors - Photo
 var (
-	ErrPhotoNotFound       = errors.New("photo not found")
-	ErrPhotoAlreadyDeleted = errors.New("photo already deleted")
+	ErrPhotoNotFound         = errors.New("photo not found")
+	ErrPhotoAlreadyDeleted   = errors.New("photo already deleted")
+	ErrPhotoAlreadyCompleted = errors.New("photo has already been uploaded and confirmed")
+	ErrPhotoNotOwned         = errors.New("photo was created by a different API key")
+	ErrPhotoNotPending       = errors.New("photo is not in pending status")
 )
 
 // Domain errors - Upload
@@ -18,6 +21,7 @@ var (
 	ErrUploadTokenAlreadyUsed  = errors.New("upload token has already been used")
 	ErrUploadTokenInvalidState = errors.New("upload token is in invalid state")
 	ErrUploadInProgress        = errors.New("upload is already in progress")
+	ErrRetryLimitExceeded      = errors.New("maximum retry attempts exceeded")
 )
 
 // Domain errors - File

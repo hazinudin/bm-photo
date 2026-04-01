@@ -41,6 +41,9 @@ type Photo struct {
 	uploadedBy   string // API Key ID (string, references auth)
 	uploadedAt   time.Time
 
+	// Upload retry tracking
+	retryCount int
+
 	// Timestamps
 	createdAt time.Time
 	updatedAt time.Time
@@ -72,8 +75,12 @@ var (
 	ErrPhotoDeleted    = errors.New("photo has been deleted")
 	ErrInvalidAPIKeyID = errors.New("invalid API key ID")
 
-	ErrUploadNotPending = errors.New("upload is not in pending state")
-	ErrPhotoNotDeleted  = errors.New("photo is not deleted")
+	ErrUploadNotPending      = errors.New("upload is not in pending state")
+	ErrPhotoNotDeleted       = errors.New("photo is not deleted")
+	ErrPhotoAlreadyCompleted = errors.New("photo has already been uploaded and confirmed")
+	ErrPhotoNotOwned         = errors.New("photo was created by a different API key")
+	ErrRetryLimitExceeded    = errors.New("maximum retry attempts exceeded")
+	ErrPhotoNotPending       = errors.New("photo is not in pending status")
 )
 
 // NewPhoto creates a new Photo entity with validation.
@@ -119,6 +126,7 @@ func NewPhoto(params PhotoParams) (*Photo, error) {
 		uploadStatus:     vo.UploadStatusPending,
 		uploadedBy:       params.UploadedBy,
 		uploadedAt:       now,
+		retryCount:       0,
 		createdAt:        now,
 		updatedAt:        now,
 		tags:             []string{},
@@ -254,6 +262,16 @@ func (p *Photo) IsUploadCompleted() bool {
 	return p.uploadStatus == vo.UploadStatusCompleted
 }
 
+// CanRetryUpload checks if the photo upload can be retried
+func (p *Photo) CanRetryUpload() bool {
+	return p.uploadStatus == vo.UploadStatusPending && p.retryCount < model.MaxRetriesPerPhoto
+}
+
+// RetryCount returns the current retry count
+func (p *Photo) RetryCount() int {
+	return p.retryCount
+}
+
 // Business Methods
 
 // MarkUploadComplete transitions upload status to completed.
@@ -263,6 +281,56 @@ func (p *Photo) MarkUploadComplete() error {
 	}
 	p.uploadStatus = vo.UploadStatusCompleted
 	p.updatedAt = time.Now()
+	return nil
+}
+
+// MarkUploadCompleted marks the photo upload as completed (alias for MarkUploadComplete).
+func (p *Photo) MarkUploadCompleted() error {
+	if p.IsDeleted() {
+		return ErrPhotoDeleted
+	}
+	if p.uploadStatus == vo.UploadStatusCompleted {
+		return ErrPhotoAlreadyCompleted
+	}
+	if p.uploadStatus != vo.UploadStatusPending {
+		return ErrPhotoNotPending
+	}
+	p.uploadStatus = vo.UploadStatusCompleted
+	p.updatedAt = time.Now()
+	return nil
+}
+
+// MarkUploadExpired marks the photo upload as expired.
+func (p *Photo) MarkUploadExpired() error {
+	if p.IsDeleted() {
+		return ErrPhotoDeleted
+	}
+	if p.uploadStatus == vo.UploadStatusCompleted {
+		return ErrPhotoAlreadyCompleted
+	}
+	p.uploadStatus = vo.UploadStatusExpired
+	p.updatedAt = time.Now()
+	return nil
+}
+
+// IncrementRetryCount increments the retry count for upload retries.
+func (p *Photo) IncrementRetryCount() error {
+	if p.IsDeleted() {
+		return ErrPhotoDeleted
+	}
+	if p.retryCount >= model.MaxRetriesPerPhoto {
+		return ErrRetryLimitExceeded
+	}
+	p.retryCount++
+	p.updatedAt = time.Now()
+	return nil
+}
+
+// VerifyOwnership checks if the given API key is the owner of this photo.
+func (p *Photo) VerifyOwnership(apiKeyID string) error {
+	if p.uploadedBy != apiKeyID {
+		return ErrPhotoNotOwned
+	}
 	return nil
 }
 
@@ -375,6 +443,7 @@ type PhotoRowParams struct {
 	Tags             []string
 	UploadToken      vo.UploadToken
 	UploadStatus     vo.UploadStatus
+	RetryCount       int
 	UploadedBy       string
 	UploadedAt       time.Time
 	CreatedAt        time.Time
@@ -409,6 +478,7 @@ func NewPhotoFromRepository(params PhotoRowParams) *Photo {
 		tags:             params.Tags,
 		uploadToken:      params.UploadToken,
 		uploadStatus:     params.UploadStatus,
+		retryCount:       params.RetryCount,
 		uploadedBy:       params.UploadedBy,
 		uploadedAt:       params.UploadedAt,
 		createdAt:        params.CreatedAt,

@@ -24,6 +24,9 @@ const (
 
 	// MaxPendingUploadsPerKey is the maximum number of pending uploads per API key
 	MaxPendingUploadsPerKey = 10
+
+	// MaxRetriesPerPhoto is the maximum number of upload retry attempts per photo
+	MaxRetriesPerPhoto = 5
 )
 
 // Pagination defaults

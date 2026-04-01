@@ -38,4 +38,13 @@ var (
 
 	// ErrUploadNotFound is returned when an upload record cannot be found.
 	ErrUploadNotFound = errors.New("upload not found")
+
+	// ErrRetryLimitExceeded is returned when the maximum retry attempts have been exceeded.
+	ErrRetryLimitExceeded = errors.New("maximum retry attempts exceeded")
+
+	// ErrPhotoNotPending is returned when a photo is not in pending upload status.
+	ErrPhotoNotPending = errors.New("photo is not in pending status")
+
+	// ErrPhotoNotOwned is returned when a photo belongs to a different API key.
+	ErrPhotoNotOwned = errors.New("photo is not owned by this API key")
 )
