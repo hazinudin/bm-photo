@@ -1,9 +1,9 @@
 # Product Requirements Document (PRD)
 # Bina Marga Survey Photo Service
 
-**Version:** 1.4  
-**Date:** March 31, 2026  
-**Status:** In Progress - Service Layer Implemented  
+**Version:** 1.5  
+**Date:** April 1, 2026  
+**Status:** In Progress - API Design Updated with Retry Endpoint  
 
 ---
 
@@ -29,6 +29,7 @@
 | Database Migrations | ✅ Complete | `migrations/` | Initial + simplification migration |
 | pgx v5 Driver | ✅ Complete | `go.mod` | PostgreSQL driver added |
 | Service Layer | ✅ Complete | `internal/service/` | PhotoService, UploadService, AuthService, AuditService |
+| Retry Endpoint Logic | ⏳ Pending | `internal/service/` | GetNewSignedURL method for retry uploads |
 
 ### Pending Components
 
@@ -125,13 +126,19 @@ The photo upload process uses a two-phase approach to optimize for performance a
 
 ####2.1.2 Upload Endpoints
 
-**Endpoint 1: Get Signed Upload URL**
+**Endpoint 1: Get Signed Upload URL (Initial Upload)**
 - **Priority:** Must Have
 - **API Method:** POST /api/v1/photos/upload-url
 - **Authentication:** API Key required
-- **Purpose:** Generate a signed URL for direct client upload to GCS with full photo metadata
+- **Purpose:** Generate a signed URL for direct client upload to GCS with full photo metadata. Creates a new photo record.
 
-**Endpoint 2: Confirm Upload**
+**Endpoint 2: Get New Signed URL (Retry Upload)**
+- **Priority:** Must Have
+- **API Method:** POST /api/v1/photos/{photo_id}/new-signed-url
+- **Authentication:** API Key required
+- **Purpose:** Generate a new signed URL for an existing pending photo. Used when GCS upload fails and client needs to retry with the same photo record.
+
+**Endpoint 3: Confirm Upload**
 - **Priority:** Must Have
 - **API Method:** POST /api/v1/photos/confirm
 - **Authentication:** API Key required
@@ -158,6 +165,8 @@ The photo upload process uses a two-phase approach to optimize for performance a
 **Note:** LRS integration for STA calculation is deferred to a future phase. If `sta_value` is not provided, it can be calculated later by other services when coordinate data is available.
 
 #### 2.1.4 Upload Workflow
+
+##### 2.1.4.1 Initial Upload Flow
 
 ```
 Phase 1: Get Signed Upload URL (with full metadata)
@@ -194,7 +203,7 @@ Create photo record in database                          │
     ├─ photo_id, route_id, lane_code                     │
     ├─ latitude, longitude, sta_value                    │
     ├─ gcs_object_name, file_format, file_size           │
-    └─ status = 'pending'                                │
+    └─ upload_status = 'pending'                         │
     ↓                                                    │
 Create pending_upload record                             │
     ├─ upload_token, photo_id                            │
@@ -206,7 +215,57 @@ Return to client                                         │
     ├─ upload_token (for confirmation request)           │
     └─ photo_id (for client reference)                   │
 ─────────────────────────────────────────────────────────┘
+```
 
+##### 2.1.4.2 Retry Upload Flow (When GCS Upload Fails)
+
+```
+Retry: Get New Signed URL for Existing Photo
+─────────────────────────────────────────────────────────┐
+Prerequisites:                                           │
+    ├─ Previous upload to GCS failed (network, timeout)  │
+    ├─ Client has photo_id from initial request          │
+    └─ Photo status is still 'pending'                   │
+    ↓                                                    │
+Client sends:                                            │
+    POST /photos/{photo_id}/new-signed-url               │
+    ↓                                                    │
+Validate API Key                                         │
+    ↓                                                    │
+Validate photo_id exists and is pending                  │
+    ├─ Check photo record exists                         │
+    ├─ Verify photo.upload_status = 'pending'            │
+    └─ Verify requesting API key matches photo creator   │
+    ↓                                                    │
+Invalidate previous tokens for this photo                │
+    ├─ Mark existing pending uploads as 'expired'        │
+    └─ Only most recent token remains valid              │
+    ↓                                                    │
+Generate new upload resources                            │
+    ├─ Create new upload_token (UUID)                    │
+    ├─ Generate new signed URL (15 min expiry)           │
+    │   Note: GCS object name stays the same             │
+    └─ Update photo.updated_at timestamp                 │
+    ↓                                                    │
+Create new pending_upload record                         │
+    ├─ upload_token, photo_id                            │
+    ├─ api_key_id, expires_at (+15 min)                  │
+    └─ status = 'pending'                                │
+    ↓                                                    │
+Return to client                                         │
+    ├─ signed_url (new URL for retry)                    │
+    ├─ upload_token (new token for confirmation)         │
+    └─ photo_id (same as before)                         │
+    ↓                                                    │
+Client uploads to GCS using new signed_url               │
+    ↓                                                    │
+Client confirms with new upload_token                    │
+─────────────────────────────────────────────────────────┘
+```
+
+##### 2.1.4.3 Confirm Upload Flow
+
+```
 Phase 2: Confirm Upload
 ─────────────────────────────────────────────────────────────────┐
 Client sends:                                            │
@@ -224,6 +283,10 @@ Verify file exists in GCS                                │
     └─ Use gcs_object_name from photo record            │
     ↓                                                    │
 Mark pending_upload status as 'completed'                │
+    ↓                                                    │
+Update photo record                                      │
+    ├─ upload_status = 'completed'                       │
+    └─ uploaded_at = CURRENT_TIMESTAMP                   │
     ↓                                                    │
 Return confirmation to client                            │
     ├─ photo_id                                          │
@@ -260,6 +323,16 @@ by other services when coordinate data becomes available.
 | CORS | Pre-flight request blocked | Configure GCS bucket CORS |
 | NetworkError | Upload interrupted | Request new signed URL |
 
+**Retry Upload (New Signed URL) Errors:**
+
+| Error Code | Description | HTTP Status |
+|------------|-------------|-------------|
+| INVALID_API_KEY | API key missing or invalid | 401 Unauthorized |
+| PHOTO_NOT_FOUND | Photo ID does not exist | 404 Not Found |
+| PHOTO_ALREADY_COMPLETED | Photo has already been uploaded and confirmed | 409 Conflict |
+| PHOTO_NOT_OWNED | Photo was created by a different API key | 403 Forbidden |
+| RETRY_LIMIT_EXCEEDED | Maximum retry attempts (5) exceeded for this photo | 429 Too Many Requests |
+
 **Phase 2 (Confirm Upload) Errors:**
 
 | Error Code | Description | HTTP Status |
@@ -282,26 +355,46 @@ by other services when coordinate data becomes available.
 - Backend validates token state before processing confirmation
 - Attempting to reuse a token results in TOKEN_ALREADY_USED error
 - Token expiration prevents indefinite pending uploads
+- **New tokens invalidate old ones**: When requesting a new signed URL for retry, previous tokens for the same photo are marked as 'expired'
 
 **Client-Side Retry Logic:**
-- If GCS upload fails (network error, timeout), request a NEW signed URL
+- If GCS upload fails (network error, timeout), request a NEW signed URL using `POST /photos/{photo_id}/new-signed-url`
+- Use the same `photo_id` from the initial upload request
 - Do NOT retry with the same signed URL after a failed upload
 - If confirm request fails, token may still be valid for retry
+- Maximum 5 retry attempts per photo (prevents abuse)
 
 **Cleanup and Expiration:**
 - Expired tokens are marked as 'expired' (background job runs hourly)
+- **GCS files are NOT auto-deleted** when tokens expire (prevents race conditions)
 - Photos associated with expired tokens remain in database for manual review
 - Deferred processing features (EXIF, thumbnails, LRS) are not triggered for expired uploads
+- Admin cleanup endpoint available to remove orphaned photos after 24+ hours
 
-**Example Retry Flow:**
+**Retry Flow with Dedicated Endpoint:**
 ```
-1. Client requests signed URL with metadata (token: abc-123)
-2. Client attempts upload to GCS
-3. Upload fails (network timeout)
-4. Client requests NEW signed URL (token: xyz-789)
-5. Upload succeeds with new token
-6. Client confirms upload with token xyz-789
-7. Token abc-123 remains in 'pending' state until expiration
+1. Client requests signed URL with metadata
+   POST /upload-url
+   Response: {photo_id: "ABC", token: "token-1", signed_url: "url-1"}
+
+2. Client attempts upload to GCS using signed_url
+   PUT url-1 (binary data)
+   Result: ❌ Network timeout
+
+3. Client requests NEW signed URL for same photo
+   POST /photos/ABC/new-signed-url
+   Backend: Invalidates token-1, creates token-2
+   Response: {photo_id: "ABC", token: "token-2", signed_url: "url-2"}
+
+4. Client uploads to GCS using new signed_url
+   PUT url-2 (binary data)
+   Result: ✅ Success
+
+5. Client confirms upload
+   POST /confirm {token: "token-2"}
+   Response: {photo_id: "ABC", message: "Upload confirmed"}
+
+6. Token-1 remains in database as 'expired' for audit trail
 ```
 
 ### 2.2 Photo Browsing and Search
@@ -605,7 +698,8 @@ func main() {
     
     // Routes
     mux.HandleFunc("POST /api/v1/photos/upload-url", handlers.GetSignedUploadURL)
-    mux.HandleFunc("POST /api/v1/photos/complete", handlers.CompleteUpload)
+    mux.HandleFunc("POST /api/v1/photos/{id}/new-signed-url", handlers.GetNewSignedURL)  // Retry endpoint
+    mux.HandleFunc("POST /api/v1/photos/confirm", handlers.ConfirmUpload)
     mux.HandleFunc("GET /api/v1/photos/{id}", handlers.GetPhoto)
     mux.HandleFunc("GET /api/v1/photos", handlers.BrowsePhotos)
     
@@ -677,6 +771,10 @@ CREATE TABLE photos (
     description TEXT,
     tags TEXT[],
     
+    -- Upload tracking (new fields for retry support)
+    upload_status VARCHAR(20) DEFAULT 'pending' CHECK (upload_status IN ('pending', 'completed', 'expired')),
+    retry_count INTEGER DEFAULT 0 CHECK (retry_count >= 0 AND retry_count <= 5),
+    
     -- Upload metadata
     uploaded_by_api_key UUID REFERENCES api_keys(key_id),
     uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -694,6 +792,7 @@ CREATE INDEX idx_photos_sta_value ON photos(route_id, sta_value) WHERE deleted_a
 CREATE INDEX idx_photos_route_lane ON photos(route_id, lane_code, sta_value) WHERE deleted_at IS NULL;
 CREATE INDEX idx_photos_coordinates ON photos(latitude, longitude) WHERE deleted_at IS NULL;
 CREATE INDEX idx_photos_uploaded_at ON photos(uploaded_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_photos_upload_status ON photos(upload_status) WHERE deleted_at IS NULL;
 
 -- Audit log for photo operations
 CREATE TABLE photo_audit_log (
@@ -707,12 +806,14 @@ CREATE TABLE photo_audit_log (
 ```
 
 **Schema Changes from Original Design:**
-1. Removed `status` column from photos (no processing status tracking in MVP)
+1. ~~Removed `status` column from photos~~ **Re-added**: `upload_status` column to track pending/completed/expired states
 2. Removed `thumbnail_*_path` columns (thumbnails deferred to future phase)
 3. Removed `exif_data` column (EXIF extraction deferred to future phase)
 4. Simplified `pending_uploads` to store only token, photo_id, api_key_id
 5. Made `sta_value` and `sta_source` nullable (filled by other services later)
 6. Removed `processing_completed_at` column
+7. **Added**: `retry_count` column to track upload retry attempts (max 5)
+8. **Added**: `upload_status` ENUM ('pending', 'completed', 'expired') for upload lifecycle tracking
 
 ### 5.3 Service Architecture
 
@@ -902,8 +1003,55 @@ Response (201 Created):
 - Client must upload directly to GCS using the signed URL
 - Upload token must be saved for Phase 2 confirmation
 - Photo metadata is stored in database during Phase 1
+- **Retry**: If GCS upload fails, use `POST /photos/{photo_id}/new-signed-url` to get a new signed URL for the same photo
 
-#### 6.1.3 Upload to Google Cloud Storage (Client-Side)
+#### 6.1.3 Get New Signed URL for Retry
+
+**Purpose:** Generate a new signed URL for an existing pending photo when the initial GCS upload fails.
+
+```http
+POST /api/v1/photos/{photo_id}/new-signed-url
+Content-Type: application/json
+X-API-Key: {api_key}
+```
+
+**Request:**
+- No request body required (uses photo_id from URL path)
+
+**Response (200 OK):**
+```json
+{
+  "photo_id": "550e8400-e29b-41d4-a716-446655440000",
+  "upload_token": "new-uuid-token-for-retry",
+  "signed_url": "https://storage.googleapis.com/bm-survey-photos/...",
+  "expires_at": "2024-01-15T10:45:00Z",
+  "retry_count": 1,
+  "max_retries": 5
+}
+```
+
+**Backend Actions:**
+1. Validate API key
+2. Look up photo by photo_id
+3. Verify photo exists and upload_status = 'pending'
+4. Verify requesting API key matches the one that created the photo
+5. Check retry count (max 5 attempts per photo)
+6. Mark all existing pending_upload tokens for this photo as 'expired'
+7. Generate new upload_token and signed_url (15 min expiry)
+8. Create new pending_upload record
+9. Increment retry_count on photo record
+10. Return new credentials to client
+
+**Error Responses:**
+- 401 Unauthorized: Invalid API key
+- 404 Not Found: Photo ID does not exist
+- 409 Conflict: Photo already completed or deleted
+- 403 Forbidden: Photo created by different API key
+- 429 Too Many Requests: Retry limit (5) exceeded
+
+**Important:** The GCS object name remains the same across retries. Only the signed URL and upload token change.
+
+#### 6.1.5 Upload to Google Cloud Storage (Client-Side)
 ```
 PUT {signed_url}
 Content-Type: image/jpeg
@@ -922,7 +1070,7 @@ ETag: "etag-hash"
 - Do NOT include authentication headers (signed URL has auth embedded)
 - Handle CORS configuration in GCS bucket settings
 
-#### 6.1.4 Confirm Upload (Phase 2)
+#### 6.1.6 Confirm Upload (Phase 2)
 
 **Note:** Phase 2 is a simple confirmation that the client successfully uploaded the file to GCS. All photo metadata was already provided in Phase 1.
 
@@ -955,7 +1103,7 @@ Response (200 OK):
 - 409 Conflict: Token already used or expired
 - 404 Not Found: File not found in GCS
 
-### 6.1.6 Benefits of Two-Phase Upload Architecture
+### 6.1.7 Benefits of Two-Phase Upload Architecture
 
 **Performance Benefits:**
 - Reduced server load: Files upload directly to GCS, bypassing backend
@@ -975,7 +1123,7 @@ Response (200 OK):
 - Ability to cancel uploads in progress
 - Resume interrupted uploads without restarting
 
-#### 6.1.7 Browse Photos
+#### 6.1.8 Browse Photos
 
 ```http
 GET /api/v1/photos?route_id={route_id}&sta_start={start}&sta_end={end}&lane={lane}&page={page}&per_page={per_page}
@@ -1003,7 +1151,7 @@ GET /api/v1/photos?route_id={route_id}&sta_start={start}&sta_end={end}&lane={lan
 }
 ```
 
-#### 6.1.8 Get Photo Metadata
+#### 6.1.9 Get Photo Metadata
 
 ```http
 GET /api/v1/photos/{photo_id}
@@ -1042,7 +1190,7 @@ GET /api/v1/photos/{photo_id}
 }
 ```
 
-#### 6.1.9 Download Photo
+#### 6.1.10 Download Photo
 
 ```http
 GET /api/v1/photos/{photo_id}/download
@@ -1056,7 +1204,7 @@ Content-Disposition: attachment; filename="{photo_id}.jpg"
 (Binary file stream)
 ```
 
-#### 6.1.10 Download Thumbnail
+#### 6.1.11 Download Thumbnail
 
 ```http
 GET /api/v1/photos/{photo_id}/thumbnail?size={small|medium|large}
@@ -1069,7 +1217,7 @@ Content-Type: image/jpeg
 (Binary thumbnail file stream)
 ```
 
-#### 6.1.11 Update Photo Metadata
+#### 6.1.12 Update Photo Metadata
 
 ```http
 PATCH /api/v1/photos/{photo_id}
@@ -1096,7 +1244,7 @@ Content-Type: application/json
 }
 ```
 
-#### 6.1.12 Delete Photo
+#### 6.1.13 Delete Photo
 
 ```http
 DELETE /api/v1/photos/{photo_id}?hard={true|false}
@@ -1115,7 +1263,7 @@ DELETE /api/v1/photos/{photo_id}?hard={true|false}
 - `hard=true`: Permanently delete from database and GCS
 - `hard=false` (default): Soft delete (mark as deleted, retain files)
 
-#### 6.1.13 Health Check
+#### 6.1.14 Health Check
 
 ```http
 GET /health
@@ -1123,156 +1271,6 @@ GET /health
 
 **Response (200 OK):**
 ```json
-{
-  "status": "healthy",
-  "database": "connected",
-  "storage": "connected",
-  "lrs_service": "connected",
-  "version": "1.0.0"
-}
-```
-
-### 6.1.7 Browse Photos (Same as before)
-```
-GET /api/v1/photos?route_id={route_id}&sta_start={start}&sta_end={end}&lane={lane}&page={page}&per_page={per_page}
-
-Response (200 OK):
-{
-  "photos": [
-    {
-      "photo_id": "uuid",
-      "route_id": "string",
-      "lane_code": "string",
-      "sta_value": decimal,
-      "thumbnail_url": "url",
-      "uploaded_at": "ISO8601 timestamp"
-    }
-  ],
-  "pagination": {
-    "current_page": integer,
-    "per_page": integer,
-    "total_count": integer,
-    "total_pages": integer
-  }
-}
-```
-
-#### 6.1.8 Benefits of Two-Phase Upload Architecture
-
-**Performance Benefits:**
-- Reduced server load: Files upload directly to GCS, bypassing backend
-- Faster uploads: Direct GCS uploads leverage Google's infrastructure
-- Better scalability: Backend handles metadata only, not file streaming
-- Progress tracking: Client can show real-time upload progress to users
-
-**Architecture Benefits:**
-- Clear separation of concerns: Upload vs metadata processing
-- Resumable uploads: Easier to implement retry logic for failed uploads
-- Queue-based processing:-thumbnails can be generated asynchronously
-- Parallel processing: Multiple photos can upload simultaneously without blocking
-
-**Client Experience:**
-- Real-time upload progress bars
-- Better error handling with clear feedback
-- Ability to cancel uploads in progress
-- Resume interrupted uploads without restarting
-
-#### 6.1.9 Get Photo Metadata (Same as before)
-```
-GET /api/v1/photos/{photo_id}
-
-Response (200 OK):
-{
-  "photo_id": "uuid",
-  "route_id": "string",
-  "lane_code": "string",
-  "latitude": decimal,
-  "longitude": decimal,
-  "sta_value": decimal,
-  "sta_source": "string",
-  "file_format": "string",
-  "file_size_bytes": integer,
-  "exif_data": {
-    "timestamp": "ISO8601",
-    "camera_make": "string",
-    "camera_model": "string",
-    "gps_latitude": decimal,
-    "gps_longitude": decimal,
-    "altitude": decimal,
-    "orientation": integer
-  },
-  "description": "string",
-  "tags": ["string"],
-  "uploaded_at": "ISO8601 timestamp",
-  "download_url": "url",
-  "thumbnail_urls": {
-    "small": "url",
-    "medium": "url",
-    "large": "url"
-  }
-}
-```
-
-#### 6.1.5 Download Photo
-```
-GET /api/v1/photos/{photo_id}/download
-
-Response (200 OK):
-Content-Type: image/jpeg or image/png
-Content-Disposition: attachment; filename="{photo_id}.jpg"
-
-(Binary file stream)
-```
-
-#### 6.1.6 Download Thumbnail
-```
-GET /api/v1/photos/{photo_id}/thumbnail?size={small|medium|large}
-
-Response (200 OK):
-Content-Type: image/jpeg or image/png
-
-(Binary thumbnail file stream)
-```
-
-#### 6.1.7 Update Photo Metadata
-```
-PATCH /api/v1/photos/{photo_id}
-Content-Type: application/json
-
-Request:
-{
-  "description": "string",
-  "tags": ["string"],
-  "lane_code": string
-}
-
-Response (200 OK):
-{
-  "photo_id": "uuid",
-  "description": "string",
-  "tags": ["string"],
-  "lane_code": "string",
-  "updated_at": "ISO8601 timestamp"
-}
-```
-
-#### 6.1.8 Delete Photo
-```
-DELETE /api/v1/photos/{photo_id}?hard={true|false}
-
-Response (200 OK):
-{
-  "photo_id": "uuid",
-  "deleted_at": "ISO8601 timestamp",
-  "deletion_type": "soft"|"hard"
-}
-```
-
-#### 6.1.9 Health Check
-```
-GET /health
-
-Response (200 OK):
 {
   "status": "healthy",
   "database": "connected",
