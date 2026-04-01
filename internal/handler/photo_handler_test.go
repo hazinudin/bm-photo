@@ -11,12 +11,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/bina-marga/survey-photo/internal/model/entity"
 	"github.com/bina-marga/survey-photo/internal/model/vo"
+	"github.com/bina-marga/survey-photo/internal/repository"
 )
 
 // TestGetPhoto_ValidID_Returns200 tests getting an existing completed photo
@@ -511,7 +513,7 @@ func TestDownloadPhoto_DeletedPhoto_Returns404(t *testing.T) {
 }
 
 // Helper function to create a completed test photo
-func createCompletedTestPhoto(t *testing.T, ts *testServer, apiKey, routeID, laneCode string) vo.PhotoID {
+func createCompletedTestPhoto(t *testing.T, ts *testServer, apiKey *repository.APIKey, routeID, laneCode string) vo.PhotoID {
 	t.Helper()
 
 	ctx := context.Background()
@@ -571,7 +573,7 @@ func createCompletedTestPhoto(t *testing.T, ts *testServer, apiKey, routeID, lan
 }
 
 // Helper function to create a soft-deleted photo
-func createSoftDeletedPhoto(t *testing.T, ts *testServer, apiKey, routeID, laneCode string) vo.PhotoID {
+func createSoftDeletedPhoto(t *testing.T, ts *testServer, apiKey *repository.APIKey, routeID, laneCode string) vo.PhotoID {
 	t.Helper()
 
 	ctx := context.Background()
@@ -587,7 +589,7 @@ func createSoftDeletedPhoto(t *testing.T, ts *testServer, apiKey, routeID, laneC
 }
 
 // Helper function to create a photo with specific STA value
-func createPhotoWithSTA(t *testing.T, ts *testServer, apiKey, routeID, laneCode string, staValue float64) vo.PhotoID {
+func createPhotoWithSTA(t *testing.T, ts *testServer, apiKey *repository.APIKey, routeID, laneCode string, staValue float64) vo.PhotoID {
 	t.Helper()
 
 	ctx := context.Background()
@@ -646,8 +648,39 @@ func getGCSObjectNameForPhoto(photoID vo.PhotoID, routeID, laneCode string) stri
 		routeID, routeID, laneCode, photoID.String()[:8])
 }
 
+// doRequestWithQuery makes an HTTP request with query parameters
+func doRequestWithQuery(t *testing.T, server *httptest.Server, method, path string, queryParams map[string]string, apiKey *repository.APIKey) *http.Response {
+	t.Helper()
+
+	url := server.URL + path
+	if len(queryParams) > 0 {
+		q := url + "?"
+		for k, v := range queryParams {
+			q += fmt.Sprintf("%s=%s&", k, v)
+		}
+		url = q
+	}
+
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+
+	if apiKey != nil && apiKey.RawKey != "" {
+		req.Header.Set("X-API-Key", apiKey.RawKey)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Failed to execute request: %v", err)
+	}
+
+	return resp
+}
+
 // doRequestWithBody makes an HTTP request with a body
-func doRequestWithBody(t *testing.T, server *httptest.Server, method, path string, body io.Reader, apiKey string) *http.Response {
+func doRequestWithBody(t *testing.T, server *httptest.Server, method, path string, body io.Reader, apiKey *repository.APIKey) *http.Response {
 	t.Helper()
 
 	url := server.URL + path
@@ -657,8 +690,8 @@ func doRequestWithBody(t *testing.T, server *httptest.Server, method, path strin
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if apiKey != "" {
-		req.Header.Set("X-API-Key", apiKey)
+	if apiKey != nil && apiKey.RawKey != "" {
+		req.Header.Set("X-API-Key", apiKey.RawKey)
 	}
 
 	client := &http.Client{Timeout: 30 * 1000000000}

@@ -238,6 +238,9 @@ type APIKey struct {
 
 	// IsActive indicates whether the API key is active.
 	IsActive bool
+
+	// RawKey is the unhashed API key (only used in tests, not stored in DB).
+	RawKey string
 }
 
 // AuditLogRepository tracks photo operations for auditing purposes.

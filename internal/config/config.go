@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+
+	"github.com/joho/godotenv"
 )
 
 // ServerConfig holds HTTP server configuration.
@@ -38,8 +40,12 @@ type Config struct {
 }
 
 // Load reads configuration from environment variables.
+// It automatically loads .env file if present.
 // It returns an error if any required field is missing.
 func Load() (*Config, error) {
+	// Load .env file if it exists (ignore error if not found)
+	_ = godotenv.Load()
+
 	cfg := &Config{
 		Server: ServerConfig{
 			Port:     8080,
