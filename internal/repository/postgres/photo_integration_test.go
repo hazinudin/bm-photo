@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bina-marga/survey-photo/internal/model/entity"
 	"github.com/bina-marga/survey-photo/internal/model/vo"
 	"github.com/bina-marga/survey-photo/internal/repository"
 )
@@ -44,7 +43,8 @@ func TestPhotoRepository_CreateAndGet(t *testing.T) {
 	assert.Equal(t, photo.RouteID(), retrieved.RouteID())
 	assert.Equal(t, photo.LaneCode(), retrieved.LaneCode())
 	assert.Equal(t, photo.STAValue(), retrieved.STAValue())
-	assert.Equal(t, photo.STAValue(), 10.5)
+	require.NotNil(t, photo.STAValue())
+	assert.InDelta(t, 10.5, *photo.STAValue(), 0.001)
 }
 
 func TestPhotoRepository_Create_GetByUploadToken(t *testing.T) {

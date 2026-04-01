@@ -84,6 +84,7 @@ func runMigrations(ctx context.Context, db *PostgresDB) error {
 		tags JSONB DEFAULT '[]',
 		upload_token UUID NOT NULL UNIQUE,
 		upload_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+		retry_count INTEGER NOT NULL DEFAULT 0,
 		uploaded_by VARCHAR(100) NOT NULL,
 		uploaded_at TIMESTAMP WITH TIME ZONE NOT NULL,
 		created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -127,6 +128,35 @@ func runMigrations(ctx context.Context, db *PostgresDB) error {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
+	// Migration 000002: Remove file tracking columns from pending_uploads if they exist
+	simplifyPendingUploads := `
+	ALTER TABLE pending_uploads DROP COLUMN IF EXISTS file_name;
+	ALTER TABLE pending_uploads DROP COLUMN IF EXISTS content_type;
+	ALTER TABLE pending_uploads DROP COLUMN IF EXISTS file_size_bytes;
+	ALTER TABLE pending_uploads DROP COLUMN IF EXISTS completed_at;
+	`
+	_, err = db.pool.Exec(ctx, simplifyPendingUploads)
+	if err != nil {
+		return fmt.Errorf("failed to simplify pending_uploads table: %w", err)
+	}
+
+	// Add retry_count column if it doesn't exist (for migration 000003)
+	alterTable := `
+	DO $$
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'photos' AND column_name = 'retry_count'
+		) THEN
+			ALTER TABLE photos ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;
+		END IF;
+	END $$;
+	`
+	_, err = db.pool.Exec(ctx, alterTable)
+	if err != nil {
+		return fmt.Errorf("failed to add retry_count column: %w", err)
+	}
+
 	return nil
 }
 
@@ -164,8 +194,12 @@ func (b *PhotoBuilder) WithRouteID(routeID string) *PhotoBuilder {
 		FileSizeBytes: 1024,
 		UploadToken:   vo.NewUploadToken(),
 		UploadedBy:    "test-api-key",
+		GCSObjectName: "photos/2024/" + routeID + "/" + routeID + "_2024_L1_test.jpg",
 	}
-	photo, _ := entity.NewPhoto(params)
+	photo, err := entity.NewPhoto(params)
+	if err != nil {
+		panic(err)
+	}
 	photo.SetSTA(0, vo.STASourceUserProvided)
 	b.photo = photo
 	return b
@@ -211,27 +245,21 @@ func (b *PhotoBuilder) WithTags(tags []string) *PhotoBuilder {
 	return b
 }
 
-func (b *PhotoBuilder) WithEXIFData(exif *entity.EXIFData) *PhotoBuilder {
+func (b *PhotoBuilder) MarkUploadCompleted() *PhotoBuilder {
 	if b.photo == nil {
 		return b.WithRouteID("NR-001")
 	}
-	b.photo.SetEXIFData(exif)
+	b.photo.MarkUploadCompleted()
 	return b
 }
 
-func (b *PhotoBuilder) MarkUploadComplete() *PhotoBuilder {
+func (b *PhotoBuilder) WithRetryCount(count int) *PhotoBuilder {
 	if b.photo == nil {
 		return b.WithRouteID("NR-001")
 	}
-	b.photo.MarkUploadComplete()
-	return b
-}
-
-func (b *PhotoBuilder) MarkProcessingComplete(thumbnails entity.ThumbnailPaths) *PhotoBuilder {
-	if b.photo == nil {
-		return b.WithRouteID("NR-001")
+	for i := 0; i < count; i++ {
+		b.photo.IncrementRetryCount()
 	}
-	b.photo.MarkProcessingComplete(thumbnails)
 	return b
 }
 
