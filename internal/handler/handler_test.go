@@ -321,9 +321,12 @@ func createTestAPIKey(t *testing.T, repo repository.APIKeyRepository, scopes []s
 	hash := sha256.Sum256([]byte(rawKey))
 	keyHash := hex.EncodeToString(hash[:])
 
+	// Generate key ID for cleanup
+	keyID := generateRandomKeyID()
+
 	// Create API key record
 	apiKey := &repository.APIKey{
-		KeyID:       generateRandomKeyID(),
+		KeyID:       keyID,
 		KeyHash:     keyHash,
 		Scopes:      scopes,
 		Description: "Test API key",
@@ -366,7 +369,7 @@ func generateRandomKeyID() string {
 }
 
 // doRequest makes an HTTP request to the test server with optional API key
-func doRequest(t *testing.T, server *httptest.Server, method, path string, body io.Reader, apiKey string) *http.Response {
+func doRequest(t *testing.T, server *httptest.Server, method, path string, body io.Reader, apiKey *repository.APIKey) *http.Response {
 	t.Helper()
 
 	url := server.URL + path
@@ -376,39 +379,8 @@ func doRequest(t *testing.T, server *httptest.Server, method, path string, body 
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if apiKey != "" {
-		req.Header.Set("X-API-Key", apiKey)
-	}
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("Failed to execute request: %v", err)
-	}
-
-	return resp
-}
-
-// doRequestWithQuery makes an HTTP request with query parameters
-func doRequestWithQuery(t *testing.T, server *httptest.Server, method, path string, queryParams map[string]string, apiKey string) *http.Response {
-	t.Helper()
-
-	url := server.URL + path
-	if len(queryParams) > 0 {
-		q := url + "?"
-		for k, v := range queryParams {
-			q += fmt.Sprintf("%s=%s&", k, v)
-		}
-		url = q
-	}
-
-	req, err := http.NewRequest(method, url, nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
-
-	if apiKey != "" {
-		req.Header.Set("X-API-Key", apiKey)
+	if apiKey != nil && apiKey.RawKey != "" {
+		req.Header.Set("X-API-Key", apiKey.RawKey)
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
