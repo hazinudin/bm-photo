@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/bina-marga/survey-photo/internal/repository"
 	"github.com/bina-marga/survey-photo/internal/repository/postgres"
 	"github.com/bina-marga/survey-photo/internal/service"
+	"github.com/joho/godotenv"
 )
 
 // slogLogger wraps slog.Logger to implement service.Logger interface
@@ -156,9 +158,10 @@ func setupTestServer(t *testing.T) *testServer {
 	photoSvc := service.NewPhotoService(photoRepo, gcsClient, wrappedLogger, auditSvc)
 	uploadSvc := service.NewUploadService(photoRepo, pendingUploadRepo, gcsClient, wrappedLogger)
 	authSvc := service.NewAuthService(apiKeyRepo, wrappedLogger)
+	adminSvc := service.NewAdminService(apiKeyRepo, wrappedLogger)
 
 	// Build router (uses slog.Logger directly)
-	router := NewRouter(uploadSvc, photoSvc, authSvc, gcsClient, db, logger)
+	router := NewRouter(uploadSvc, photoSvc, authSvc, adminSvc, gcsClient, db, logger)
 
 	// Create test server
 	server := httptest.NewServer(router)
@@ -432,6 +435,12 @@ func readResponseBody(t *testing.T, resp *http.Response) string {
 
 // TestMain is the entry point for all integration tests
 func TestMain(m *testing.M) {
+	// Load .env file if it exists
+	envPath, err := filepath.Abs(filepath.Join("..", "..", ".env"))
+	if err == nil {
+		_ = godotenv.Load(envPath)
+	}
+
 	// Check if integration tests should run
 	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
 		fmt.Println("Skipping integration tests. Set RUN_INTEGRATION_TESTS=true to run.")
