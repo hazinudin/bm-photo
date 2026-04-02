@@ -179,6 +179,23 @@ func (r *PhotoRepository) GetByID(ctx context.Context, id vo.PhotoID) (*entity.P
 	return r.scanPhoto(row)
 }
 
+func (r *PhotoRepository) GetByIDIncludeDeleted(ctx context.Context, id vo.PhotoID) (*entity.Photo, error) {
+	query := `
+		SELECT photo_id, route_id, lane_code, latitude, longitude,
+			sta_value, sta_source, gcs_object_name,
+			file_format, file_size_bytes, original_filename,
+			description, tags,
+			upload_token, upload_status, retry_count, uploaded_by, uploaded_at,
+			created_at, updated_at,
+			deleted_at, deleted_by
+		FROM photos
+		WHERE photo_id = $1`
+
+	row := r.db.Pool().QueryRow(ctx, query, id.String())
+
+	return r.scanPhoto(row)
+}
+
 func (r *PhotoRepository) GetByUploadToken(ctx context.Context, token vo.UploadToken) (*entity.Photo, error) {
 	query := `
 		SELECT photo_id, route_id, lane_code, latitude, longitude,

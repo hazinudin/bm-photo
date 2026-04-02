@@ -159,6 +159,17 @@ func (r *PendingUploadRepository) Delete(ctx context.Context, token vo.UploadTok
 	return nil
 }
 
+func (r *PendingUploadRepository) DeleteByPhotoID(ctx context.Context, photoID vo.PhotoID) error {
+	query := `DELETE FROM pending_uploads WHERE photo_id = $1`
+
+	_, err := r.db.Pool().Exec(ctx, query, photoID.String())
+	if err != nil {
+		return fmt.Errorf("failed to delete pending uploads by photo ID: %w", err)
+	}
+
+	return nil
+}
+
 func (r *PendingUploadRepository) DeleteExpired(ctx context.Context, before time.Time) (int64, error) {
 	query := `DELETE FROM pending_uploads WHERE expires_at < $1 AND status = 'expired'`
 
