@@ -51,12 +51,13 @@ type BrowsePhotosResponse struct {
 
 // PhotoSummary - Summary of a photo for list views.
 type PhotoSummary struct {
-	PhotoID    vo.PhotoID `json:"photo_id"`
-	RouteID    string     `json:"route_id"`
-	LaneCode   string     `json:"lane_code"`
-	STAValue   *float64   `json:"sta_value,omitempty"`
-	GCSURL     string     `json:"gcs_url"`
-	UploadedAt time.Time  `json:"uploaded_at"`
+	PhotoID          vo.PhotoID `json:"photo_id"`
+	RouteID          string     `json:"route_id"`
+	LaneCode         string     `json:"lane_code"`
+	STAValue         *float64   `json:"sta_value,omitempty"`
+	GCSURL           string     `json:"gcs_url"`
+	UploadedAt       time.Time  `json:"uploaded_at"`
+	OriginalFileName string     `json:"file_name"`
 }
 
 // Pagination - Pagination information.

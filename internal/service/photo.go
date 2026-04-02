@@ -102,12 +102,13 @@ func (s *PhotoServiceImpl) Browse(ctx context.Context, filter repository.BrowseF
 		}
 
 		photos = append(photos, rest.PhotoSummary{
-			PhotoID:    photo.ID(),
-			RouteID:    photo.RouteID(),
-			LaneCode:   photo.LaneCode(),
-			STAValue:   photo.STAValue(),
-			GCSURL:     s.gcsClient.GetPublicURL(photo.GCSObjectName()),
-			UploadedAt: photo.UploadedAt(),
+			PhotoID:          photo.ID(),
+			RouteID:          photo.RouteID(),
+			LaneCode:         photo.LaneCode(),
+			STAValue:         photo.STAValue(),
+			GCSURL:           s.gcsClient.GetPublicURL(photo.GCSObjectName()),
+			UploadedAt:       photo.UploadedAt(),
+			OriginalFileName: *photo.OriginalFilename(),
 		})
 	}
 
