@@ -14,24 +14,27 @@ import (
 
 // PhotoServiceImpl implements PhotoService for photo CRUD and browsing
 type PhotoServiceImpl struct {
-	photoRepo repository.PhotoRepository
-	gcsClient GCSClient
-	logger    Logger
-	auditSvc  AuditLogService
+	photoRepo         repository.PhotoRepository
+	pendingUploadRepo repository.PendingUploadRepository
+	gcsClient         GCSClient
+	logger            Logger
+	auditSvc          AuditLogService
 }
 
 // NewPhotoService creates a new PhotoService instance
 func NewPhotoService(
 	photoRepo repository.PhotoRepository,
+	pendingUploadRepo repository.PendingUploadRepository,
 	gcsClient GCSClient,
 	logger Logger,
 	auditSvc AuditLogService,
 ) *PhotoServiceImpl {
 	return &PhotoServiceImpl{
-		photoRepo: photoRepo,
-		gcsClient: gcsClient,
-		logger:    logger,
-		auditSvc:  auditSvc,
+		photoRepo:         photoRepo,
+		pendingUploadRepo: pendingUploadRepo,
+		gcsClient:         gcsClient,
+		logger:            logger,
+		auditSvc:          auditSvc,
 	}
 }
 
@@ -250,8 +253,16 @@ func (s *PhotoServiceImpl) Delete(
 	hard bool,
 	apiKeyID string,
 ) (*rest.DeletePhotoResponse, error) {
-	// Get photo
-	photo, err := s.photoRepo.GetByID(ctx, id)
+	// Get photo - use GetByIDIncludeDeleted for hard delete to find soft-deleted photos
+	var photo *entity.Photo
+	var err error
+
+	if hard {
+		photo, err = s.photoRepo.GetByIDIncludeDeleted(ctx, id)
+	} else {
+		photo, err = s.photoRepo.GetByID(ctx, id)
+	}
+
 	if err != nil {
 		if errors.Is(err, model.ErrPhotoNotFound) {
 			return nil, ErrPhotoNotFound
@@ -278,6 +289,15 @@ func (s *PhotoServiceImpl) Delete(
 			})
 			// Continue with database deletion even if GCS fails
 			// File may already be deleted or unreachable
+		}
+
+		// Delete associated pending uploads first (due to FK constraint)
+		if err := s.pendingUploadRepo.DeleteByPhotoID(ctx, id); err != nil {
+			s.logger.Warn("Failed to delete pending uploads", map[string]interface{}{
+				"photo_id": id.String(),
+				"error":    err.Error(),
+			})
+			// Continue with photo deletion - pending uploads may already be gone
 		}
 
 		// Hard delete from database
