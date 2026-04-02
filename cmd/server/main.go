@@ -92,7 +92,7 @@ func main() {
 
 	auditSvc := service.NewAuditLogService(auditLogRepo, serviceLogger)
 	uploadSvc := service.NewUploadService(photoRepo, pendingUploadRepo, gcsClient, serviceLogger)
-	photoSvc := service.NewPhotoService(photoRepo, gcsClient, serviceLogger, auditSvc)
+	photoSvc := service.NewPhotoService(photoRepo, pendingUploadRepo, gcsClient, serviceLogger, auditSvc)
 	authSvc := service.NewAuthService(apiKeyRepo, serviceLogger)
 	adminSvc := service.NewAdminService(apiKeyRepo, serviceLogger)
 

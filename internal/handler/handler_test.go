@@ -155,7 +155,7 @@ func setupTestServer(t *testing.T) *testServer {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	wrappedLogger := &slogLogger{Logger: logger}
 	auditSvc := service.NewAuditLogService(auditLogRepo, wrappedLogger)
-	photoSvc := service.NewPhotoService(photoRepo, gcsClient, wrappedLogger, auditSvc)
+	photoSvc := service.NewPhotoService(photoRepo, pendingUploadRepo, gcsClient, wrappedLogger, auditSvc)
 	uploadSvc := service.NewUploadService(photoRepo, pendingUploadRepo, gcsClient, wrappedLogger)
 	authSvc := service.NewAuthService(apiKeyRepo, wrappedLogger)
 	adminSvc := service.NewAdminService(apiKeyRepo, wrappedLogger)
