@@ -29,8 +29,8 @@ type photoRow struct {
 	PhotoID          string
 	RouteID          string
 	LaneCode         string
-	Latitude         float64
-	Longitude        float64
+	Latitude         *float64 // nullable
+	Longitude        *float64 // nullable
 	StaValue         *float64 // nullable
 	StaSource        *string  // nullable
 	GCSObjectName    string
