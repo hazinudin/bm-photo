@@ -98,17 +98,11 @@ func (s *PhotoServiceImpl) Browse(ctx context.Context, filter repository.BrowseF
 			continue
 		}
 
-		// Get STA value (pointer to float64)
-		var staValue float64
-		if photo.STAValue() != nil {
-			staValue = *photo.STAValue()
-		}
-
 		photos = append(photos, rest.PhotoSummary{
 			PhotoID:  photo.ID(),
 			RouteID:  photo.RouteID(),
 			LaneCode: photo.LaneCode(),
-			STAValue: staValue,
+			STAValue: photo.STAValue(),
 		})
 	}
 
@@ -160,17 +154,11 @@ func (s *PhotoServiceImpl) Search(ctx context.Context, filter repository.SearchF
 			continue
 		}
 
-		// Get STA value (pointer to float64)
-		var staValue float64
-		if photo.STAValue() != nil {
-			staValue = *photo.STAValue()
-		}
-
 		photos = append(photos, rest.PhotoSummary{
 			PhotoID:  photo.ID(),
 			RouteID:  photo.RouteID(),
 			LaneCode: photo.LaneCode(),
-			STAValue: staValue,
+			STAValue: photo.STAValue(),
 		})
 	}
 
