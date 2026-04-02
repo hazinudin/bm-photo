@@ -1,0 +1,71 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: bm-photo:${VERSION:-dev}
+    container_name: bm-photo-app
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      - PORT=8080
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - DB_HOST=host.docker.internal
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-bm_photos}
+      - DB_USERNAME=${DB_USERNAME:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      - DATABASE_URL=postgres://${DB_USERNAME:-postgres}:${DB_PASSWORD:-postgres}@host.docker.internal:${DB_PORT:-5432}/${DB_NAME:-bm_photos}?sslmode=disable
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME:-}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+      - GCS_TEST_PREFIX=${GCS_TEST_PREFIX:-}
+    volumes:
+      - ./sidako-prod-1a52b69059a6.json:/app/credentials.json:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - bm-photo-network
+
+  postgres:
+    image: postgres:17.6-alpine
+    container_name: bm-photo-postgres
+    profiles:
+      - embedded
+    environment:
+      - POSTGRES_USER=${DB_USERNAME:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
+      - POSTGRES_DB=${DB_NAME:-bm_photos}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --lc-collate=C --lc-ctype=C
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_NAME:-bm_photos}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - bm-photo-network
+
+volumes:
+  postgres_data:
+    name: bm-photo-postgres-data
+    external: ${POSTGRES_VOLUME_EXTERNAL:-false}
+
+networks:
+  bm-photo-network:
+    name: bm-photo-network
+    external: ${POSTGRES_NETWORK_EXTERNAL:-false}
+    driver: bridge

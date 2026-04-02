@@ -1,0 +1,43 @@
+.git
+.gitignore
+.env
+.env.local
+.env.*.local
+*.md
+README.md
+CONTRIBUTING.md
+LICENSE
+Makefile
+docker-compose.yaml
+docker-compose.*.yaml
+Dockerfile
+.dockerignore
+bin/
+server
+tmp/
+*.log
+*.out
+coverage.out
+# Keep go.sum for Go module verification
+# go.sum
+vendor/
+node_modules/
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+kubeconfig*
+*.kubeconfig
+secrets/
+credentials/
+# scripts/
+docs/
+test/
+*.test
+*_test.go
+# migrations/
+api/
+proto/
+configs/
