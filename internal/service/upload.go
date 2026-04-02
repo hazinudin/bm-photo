@@ -121,8 +121,8 @@ func (s *UploadServiceImpl) GetSignedURL(
 	}
 
 	// Set coordinates if provided
-	if req.PhotoAttributes.Latitude != 0 || req.PhotoAttributes.Longitude != 0 {
-		if err := photo.SetCoordinates(req.PhotoAttributes.Latitude, req.PhotoAttributes.Longitude); err != nil {
+	if req.PhotoAttributes.Latitude != nil && req.PhotoAttributes.Longitude != nil {
+		if err := photo.SetCoordinates(*req.PhotoAttributes.Latitude, *req.PhotoAttributes.Longitude); err != nil {
 			s.logger.Warn("Failed to set coordinates", map[string]interface{}{
 				"photo_id": photo.ID().String(),
 				"error":    err.Error(),
