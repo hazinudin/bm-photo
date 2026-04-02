@@ -83,10 +83,36 @@ func (h *UploadHandler) ConfirmUpload(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, resp)
 }
 
+// GetNewSignedURL handles the retry endpoint for generating a new signed URL.
+// POST /api/v1/photos/{photo_id}/new-signed-url
+func (h *UploadHandler) GetNewSignedURL(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	apiKeyID := GetAPIKeyID(ctx)
+	if apiKeyID == "" {
+		h.writeError(w, http.StatusUnauthorized, "API key ID not found in context", "UNAUTHORIZED")
+		return
+	}
+
+	photoID := r.PathValue("photo_id")
+	if photoID == "" {
+		h.writeError(w, http.StatusBadRequest, "photo_id is required", "BAD_REQUEST")
+		return
+	}
+
+	resp, err := h.uploadSvc.GetNewSignedURL(ctx, photoID, apiKeyID)
+	if err != nil {
+		h.handleUploadError(w, err)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, resp)
+}
+
 // handleUploadError maps service errors to appropriate HTTP status codes
 func (h *UploadHandler) handleUploadError(w http.ResponseWriter, err error) {
 	// Check if it's a model.ValidationError
-	var ve model.ValidationError
+	var ve *model.ValidationError
 	if errors.As(err, &ve) {
 		h.handleValidationError(w, err)
 		return
@@ -112,6 +138,14 @@ func (h *UploadHandler) handleUploadError(w http.ResponseWriter, err error) {
 		h.writeError(w, http.StatusNotFound, err.Error(), "FILE_NOT_FOUND")
 	case errors.Is(err, service.ErrPhotoNotFound):
 		h.writeError(w, http.StatusNotFound, err.Error(), "PHOTO_NOT_FOUND")
+	case errors.Is(err, service.ErrPhotoNotOwned):
+		h.writeError(w, http.StatusForbidden, err.Error(), "PHOTO_NOT_OWNED")
+	case errors.Is(err, service.ErrRetryLimitExceeded):
+		h.writeError(w, http.StatusTooManyRequests, err.Error(), "RETRY_LIMIT_EXCEEDED")
+	case errors.Is(err, service.ErrUploadNotPending):
+		h.writeError(w, http.StatusConflict, err.Error(), "UPLOAD_NOT_PENDING")
+	case errors.Is(err, service.ErrPhotoDeleted):
+		h.writeError(w, http.StatusGone, err.Error(), "PHOTO_DELETED")
 	case service.IsServiceError(err):
 		h.handleServiceError(w, err)
 	default:

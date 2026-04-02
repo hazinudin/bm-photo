@@ -74,11 +74,32 @@ var (
 	// ErrPhotoDeleted indicates photo has been deleted
 	ErrPhotoDeleted = errors.New("photo has been deleted")
 
+	// ErrPhotoNotOwned indicates photo belongs to a different API key
+	ErrPhotoNotOwned = errors.New("photo was created by a different API key")
+
+	// ErrRetryLimitExceeded indicates the retry limit has been exceeded
+	ErrRetryLimitExceeded = errors.New("maximum retry attempts exceeded")
+
+	// ErrUploadNotPending indicates the upload is not in pending status
+	ErrUploadNotPending = errors.New("upload is not in pending status")
+
 	// ErrUnauthorized indicates the request is unauthorized
 	ErrUnauthorized = errors.New("unauthorized")
 
 	// ErrForbidden indicates the request is forbidden
 	ErrForbidden = errors.New("forbidden")
+
+	// ErrAPIKeyCreationFailed indicates API key creation failed
+	ErrAPIKeyCreationFailed = errors.New("failed to create API key")
+
+	// ErrAPIKeyNotActive indicates the API key is not active
+	ErrAPIKeyNotActive = errors.New("API key is not active")
+
+	// ErrAPIKeyNotFound indicates the API key was not found
+	ErrAPIKeyNotFound = errors.New("API key not found")
+
+	// ErrInvalidScope indicates an invalid scope was provided
+	ErrInvalidScope = errors.New("invalid scope")
 )
 
 // ServiceError represents a service-layer error with additional context
