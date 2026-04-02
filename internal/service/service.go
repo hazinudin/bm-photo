@@ -19,6 +19,12 @@ type UploadService interface {
 	// ConfirmUpload Phase 2: Validates token, verifies file in GCS,
 	// marks upload as completed.
 	ConfirmUpload(ctx context.Context, token vo.UploadToken, apiKeyID string) (*rest.ConfirmUploadResponse, error)
+
+	// GetNewSignedURL generates a new signed URL for a pending photo upload.
+	// This is used when the original upload token has expired or failed.
+	// Validates that the photo exists, is in pending status, and belongs to the requesting API key.
+	// Increments the retry count and invalidates old tokens.
+	GetNewSignedURL(ctx context.Context, photoID string, apiKeyID string) (*rest.GetNewSignedURLResponse, error)
 }
 
 // PhotoService handles photo CRUD and browsing operations

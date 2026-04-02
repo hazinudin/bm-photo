@@ -290,3 +290,131 @@ func (s *UploadServiceImpl) ConfirmUpload(
 		Message: "Upload confirmed successfully",
 	}, nil
 }
+
+// GetNewSignedURL generates a new signed URL for a pending photo upload.
+// This is used when the original upload token has expired or the upload failed.
+// It validates that the photo exists, is in pending status, belongs to the requesting API key,
+// and has not exceeded the retry limit. Old pending tokens are invalidated and a new one is created.
+func (s *UploadServiceImpl) GetNewSignedURL(
+	ctx context.Context,
+	photoID string,
+	apiKeyID string,
+) (*rest.GetNewSignedURLResponse, error) {
+	// Parse and validate photo ID
+	photoIDVo, err := vo.ParsePhotoID(photoID)
+	if err != nil {
+		s.logger.Warn("Invalid photo ID format", map[string]interface{}{
+			"photo_id": photoID,
+			"error":    err.Error(),
+		})
+		return nil, ErrPhotoNotFound
+	}
+
+	// 1. Get photo by ID
+	photo, err := s.photoRepo.GetByID(ctx, photoIDVo)
+	if err != nil {
+		if errors.Is(err, model.ErrPhotoNotFound) {
+			return nil, ErrPhotoNotFound
+		}
+		s.logger.Error("Failed to get photo", err, map[string]interface{}{
+			"photo_id": photoID,
+		})
+		return nil, NewServiceError("INTERNAL_ERROR", "Failed to retrieve photo", err)
+	}
+
+	// 2. Verify photo exists and status is 'pending'
+	if photo.IsDeleted() {
+		return nil, ErrPhotoDeleted
+	}
+	if !photo.IsUploadPending() {
+		return nil, ErrUploadNotPending
+	}
+
+	// 3. Verify photo.uploaded_by_api_key == apiKeyID (ownership check)
+	if err := photo.VerifyOwnership(apiKeyID); err != nil {
+		s.logger.Warn("Photo ownership verification failed", map[string]interface{}{
+			"photo_id":   photoID,
+			"api_key_id": apiKeyID,
+			"owner_id":   photo.UploadedBy(),
+			"error":      err.Error(),
+		})
+		return nil, ErrPhotoNotOwned
+	}
+
+	// 4. Check retry_count < MaxRetriesPerPhoto
+	if !photo.CanRetryUpload() {
+		s.logger.Warn("Retry limit exceeded", map[string]interface{}{
+			"photo_id":    photoID,
+			"retry_count": photo.RetryCount(),
+			"max_retries": model.MaxRetriesPerPhoto,
+		})
+		return nil, ErrRetryLimitExceeded
+	}
+
+	// 5. Mark existing pending_uploads for this photo as 'expired'
+	if err := s.pendingUploadRepo.ExpireTokensByPhotoID(ctx, photoIDVo); err != nil {
+		s.logger.Error("Failed to expire old tokens", err, map[string]interface{}{
+			"photo_id": photoID,
+		})
+		return nil, NewServiceError("INTERNAL_ERROR", "Failed to invalidate old tokens", err)
+	}
+
+	// 6. Generate new upload_token
+	newUploadToken := vo.NewUploadToken()
+
+	// 7. Generate new signed URL
+	signedURL, err := s.gcsClient.GenerateSignedURL(photo.GCSObjectName(), photo.FileFormat().ContentType(), 15)
+	if err != nil {
+		s.logger.Error("Failed to generate signed URL", err, map[string]interface{}{
+			"photo_id":        photoID,
+			"gcs_object_name": photo.GCSObjectName(),
+		})
+		return nil, NewServiceError("STORAGE_ERROR", "Failed to generate signed URL", err)
+	}
+
+	// 8. Create new pending_upload record
+	expiresAt := time.Now().Add(model.UploadTokenExpiry)
+	newPendingUpload := &repository.PendingUpload{
+		UploadToken: newUploadToken,
+		PhotoID:     photoIDVo,
+		APIKeyID:    apiKeyID,
+		CreatedAt:   time.Now(),
+		ExpiresAt:   expiresAt,
+		Status:      vo.UploadStatusPending,
+	}
+
+	if err := s.pendingUploadRepo.Create(ctx, newPendingUpload); err != nil {
+		s.logger.Error("Failed to create pending upload record", err, map[string]interface{}{
+			"photo_id": photoID,
+		})
+		return nil, NewServiceError("INTERNAL_ERROR", "Failed to save pending upload", err)
+	}
+
+	// 9. Increment retry_count on photo
+	if err := s.photoRepo.IncrementRetryCount(ctx, photoIDVo); err != nil {
+		s.logger.Error("Failed to increment retry count", err, map[string]interface{}{
+			"photo_id": photoID,
+		})
+		// Continue anyway - the upload can still proceed
+	}
+
+	// Get updated retry count
+	newRetryCount := photo.RetryCount() + 1
+
+	s.logger.Info("New signed URL generated for retry", map[string]interface{}{
+		"photo_id":     photoID,
+		"upload_token": newUploadToken.String(),
+		"retry_count":  newRetryCount,
+		"max_retries":  model.MaxRetriesPerPhoto,
+		"expires_at":   expiresAt.Format(time.RFC3339),
+	})
+
+	return &rest.GetNewSignedURLResponse{
+		PhotoID:     photoIDVo,
+		UploadToken: newUploadToken,
+		SignedURL:   signedURL,
+		ExpiresAt:   expiresAt,
+		RetryCount:  newRetryCount,
+		MaxRetries:  model.MaxRetriesPerPhoto,
+	}, nil
+}
