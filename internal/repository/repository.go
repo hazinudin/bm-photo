@@ -19,6 +19,10 @@ type PhotoRepository interface {
 	// GetByUploadToken retrieves a photo by its upload token.
 	GetByUploadToken(ctx context.Context, token vo.UploadToken) (*entity.Photo, error)
 
+	// GetByIDIncludeDeleted retrieves a photo by its ID, including soft-deleted photos.
+	// This is needed for hard delete operations on already soft-deleted photos.
+	GetByIDIncludeDeleted(ctx context.Context, id vo.PhotoID) (*entity.Photo, error)
+
 	// Update modifies an existing photo in the repository.
 	Update(ctx context.Context, photo *entity.Photo) error
 
@@ -152,6 +156,9 @@ type PendingUploadRepository interface {
 
 	// Delete removes a pending upload from the repository.
 	Delete(ctx context.Context, token vo.UploadToken) error
+
+	// DeleteByPhotoID removes all pending uploads associated with a photo ID.
+	DeleteByPhotoID(ctx context.Context, photoID vo.PhotoID) error
 
 	// DeleteExpired removes all expired uploads before the given time.
 	// Returns the number of uploads deleted.
