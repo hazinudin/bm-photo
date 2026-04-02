@@ -1,0 +1,985 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Bina Marga Survey Photo Service API",
+    "description": "REST API for managing survey photographs of Indonesian national routes. Supports two-phase upload workflow, photo browsing, and management.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Bina Marga IT Team"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.bina-marga.survey",
+      "description": "Production server"
+    },
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development server"
+    }
+  ],
+  "security": [
+    {
+      "ApiKeyAuth": []
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health check endpoint",
+        "description": "Returns basic health status of the service. Does not require authentication.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Readiness check endpoint",
+        "description": "Checks if the service is ready to accept requests by verifying database connectivity. Does not require authentication.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service is ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ready"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service is not ready (database unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "not_ready"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/photos/upload-url": {
+      "post": {
+        "tags": ["Upload"],
+        "summary": "Get signed upload URL (Phase 1)",
+        "description": "Initiates the two-phase upload workflow by generating a signed URL for direct upload to Google Cloud Storage. Creates a photo record with pending status and returns upload credentials. Requires 'write' scope.",
+        "operationId": "getSignedUploadURL",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetSignedUploadURLRequest"
+              },
+              "examples": {
+                "basic": {
+                  "summary": "Basic upload request",
+                  "value": {
+                    "file_metadata": {
+                      "filename": "survey_photo_001.jpg",
+                      "content_type": "image/jpeg",
+                      "file_size_bytes": 2048576
+                    },
+                    "photo_attributes": {
+                      "route_id": "NR-001",
+                      "lane_code": "L1",
+                      "latitude": -6.2088,
+                      "longitude": 106.8456,
+                      "description": "Road surface damage at kilometer 5",
+                      "tags": ["damage", "road_surface"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Signed URL generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSignedUploadURLResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "validation": {
+                    "summary": "Validation error",
+                    "value": {
+                      "error": "validation failed",
+                      "code": "VALIDATION_ERROR",
+                      "details": "file_metadata.filename"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missing": {
+                    "summary": "Missing API key",
+                    "value": {
+                      "error": "missing API key",
+                      "code": "MISSING_API_KEY"
+                    }
+                  },
+                  "invalid": {
+                    "summary": "Invalid API key",
+                    "value": {
+                      "error": "invalid API key",
+                      "code": "INVALID_API_KEY"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - Insufficient scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "insufficient scope",
+                  "code": "INSUFFICIENT_SCOPE"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "File too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "file size exceeds maximum of 10MB",
+                  "code": "FILE_TOO_LARGE"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit or quota exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "rate": {
+                    "summary": "Rate limit exceeded",
+                    "value": {
+                      "error": "rate limit exceeded",
+                      "code": "RATE_LIMIT_EXCEEDED"
+                    }
+                  },
+                  "quota": {
+                    "summary": "Upload quota exceeded",
+                    "value": {
+                      "error": "maximum pending uploads exceeded",
+                      "code": "QUOTA_EXCEEDED"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/photos/confirm": {
+      "post": {
+        "tags": ["Upload"],
+        "summary": "Confirm upload completion (Phase 2)",
+        "description": "Confirms successful upload to Google Cloud Storage. Verifies the file exists and marks the upload as completed. Requires 'write' scope.",
+        "operationId": "confirmUpload",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmUploadRequest"
+              },
+              "example": {
+                "upload_token": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upload confirmed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmUploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid token format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "invalid upload token format",
+                  "code": "INVALID_TOKEN"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Token not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "upload token not found",
+                  "code": "TOKEN_NOT_FOUND"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Token already used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "upload token has already been used",
+                  "code": "TOKEN_ALREADY_USED"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Token expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "upload token has expired",
+                  "code": "TOKEN_EXPIRED"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/photos/{photo_id}": {
+      "get": {
+        "tags": ["Photos"],
+        "summary": "Get photo metadata",
+        "description": "Retrieves complete metadata for a specific photo including download URL. Requires 'read' scope.",
+        "operationId": "getPhoto",
+        "parameters": [
+          {
+            "name": "photo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Unique photo identifier (UUID)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Photo metadata retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid photo ID format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "invalid photo_id format",
+                  "code": "INVALID_PHOTO_ID"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Photo not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "photo not found",
+                  "code": "NOT_FOUND"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": ["Photos"],
+        "summary": "Update photo metadata",
+        "description": "Updates photo metadata (description, tags, lane_code). Requires 'write' scope.",
+        "operationId": "updatePhoto",
+        "parameters": [
+          {
+            "name": "photo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Unique photo identifier (UUID)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePhotoRequest"
+              },
+              "example": {
+                "description": "Updated description",
+                "tags": ["damage", "road_surface", "urgent"],
+                "lane_code": "R2"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Photo updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdatePhotoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Photo not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Photos"],
+        "summary": "Delete photo",
+        "description": "Deletes a photo. Soft delete by default (marks as deleted but retains files). Use ?hard=true for permanent deletion. Requires 'admin' scope.",
+        "operationId": "deletePhoto",
+        "parameters": [
+          {
+            "name": "photo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "hard",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "If true, permanently deletes the photo and removes files from GCS"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Photo deleted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletePhotoResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient scope (requires admin scope)"
+          },
+          "404": {
+            "description": "Photo not found"
+          }
+        }
+      }
+    },
+    "/api/v1/photos/{photo_id}/download": {
+      "get": {
+        "tags": ["Photos"],
+        "summary": "Download photo",
+        "description": "Redirects to a signed download URL for the photo file. URL expires after 60 minutes. Requires 'read' scope.",
+        "operationId": "downloadPhoto",
+        "parameters": [
+          {
+            "name": "photo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to signed download URL"
+          },
+          "404": {
+            "description": "Photo not found"
+          }
+        }
+      }
+    },
+    "/api/v1/photos": {
+      "get": {
+        "tags": ["Photos"],
+        "summary": "Browse photos",
+        "description": "Browse photos with filtering by route, STA range, and lane. Supports pagination. Requires 'read' scope.",
+        "operationId": "browsePhotos",
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by route identifier"
+          },
+          {
+            "name": "sta_start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0
+            },
+            "description": "STA range start"
+          },
+          {
+            "name": "sta_end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0
+            },
+            "description": "STA range end"
+          },
+          {
+            "name": "lane_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[LR]([1-9]|10)$"
+            },
+            "description": "Lane filter (format: L1-L10 or R1-R10)"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Photos retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrowsePhotosResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GetSignedUploadURLRequest": {
+        "type": "object",
+        "required": ["file_metadata", "photo_attributes"],
+        "properties": {
+          "file_metadata": {
+            "type": "object",
+            "required": ["filename", "content_type", "file_size_bytes"],
+            "properties": {
+              "filename": {
+                "type": "string",
+                "description": "Original filename",
+                "example": "survey_photo_001.jpg"
+              },
+              "content_type": {
+                "type": "string",
+                "enum": ["image/jpeg", "image/png", "image/jpg"],
+                "description": "MIME type of the file",
+                "example": "image/jpeg"
+              },
+              "file_size_bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10485760,
+                "description": "File size in bytes (max 10MB)",
+                "example": 2048576
+              }
+            }
+          },
+          "photo_attributes": {
+            "type": "object",
+            "required": ["route_id", "lane_code", "latitude", "longitude"],
+            "properties": {
+              "route_id": {
+                "type": "string",
+                "description": "National route identifier",
+                "example": "NR-001"
+              },
+              "lane_code": {
+                "type": "string",
+                "pattern": "^[LR]([1-9]|10)$",
+                "description": "Lane identifier (L1-L10 for left, R1-R10 for right)",
+                "example": "L1"
+              },
+              "latitude": {
+                "type": "number",
+                "minimum": -90,
+                "maximum": 90,
+                "description": "Latitude in decimal degrees (EPSG:4326)",
+                "example": -6.2088
+              },
+              "longitude": {
+                "type": "number",
+                "minimum": -180,
+                "maximum": 180,
+                "description": "Longitude in decimal degrees (EPSG:4326)",
+                "example": 106.8456
+              },
+              "sta_value": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Station value along route (optional)",
+                "example": 5.2
+              },
+              "description": {
+                "type": "string",
+                "description": "Optional photo description",
+                "example": "Road surface damage at kilometer 5"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional tags for categorization",
+                "example": ["damage", "road_surface"]
+              }
+            }
+          }
+        }
+      },
+      "GetSignedUploadURLResponse": {
+        "type": "object",
+        "properties": {
+          "upload_token": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Token for upload confirmation (Phase 2)",
+            "example": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+          },
+          "signed_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "GCS signed URL for direct upload (expires in 15 minutes)",
+            "example": "https://storage.googleapis.com/bm-survey-photos/photos/2026/NR-001/NR-001_2026_L1_a1b2c3d4.jpg?Expires=1705312800&Signature=..."
+          },
+          "photo_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique identifier for the photo",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Signed URL expiration timestamp (RFC3339)",
+            "example": "2026-04-01T10:45:00Z"
+          }
+        }
+      },
+      "ConfirmUploadRequest": {
+        "type": "object",
+        "required": ["upload_token"],
+        "properties": {
+          "upload_token": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Upload token from Phase 1",
+            "example": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+          }
+        }
+      },
+      "ConfirmUploadResponse": {
+        "type": "object",
+        "properties": {
+          "photo_id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "message": {
+            "type": "string",
+            "example": "Upload confirmed successfully"
+          }
+        }
+      },
+      "PhotoResponse": {
+        "type": "object",
+        "properties": {
+          "photo_id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "route_id": {
+            "type": "string",
+            "example": "NR-001"
+          },
+          "lane_code": {
+            "type": "string",
+            "example": "L1"
+          },
+          "latitude": {
+            "type": "number",
+            "example": -6.2088
+          },
+          "longitude": {
+            "type": "number",
+            "example": 106.8456
+          },
+          "sta_value": {
+            "type": "number",
+            "nullable": true,
+            "example": 5.2
+          },
+          "sta_source": {
+            "type": "string",
+            "enum": ["user_provided", "lrs_interpolated"],
+            "nullable": true,
+            "example": "user_provided"
+          },
+          "file_format": {
+            "type": "string",
+            "enum": ["JPEG", "PNG"],
+            "example": "JPEG"
+          },
+          "file_size_bytes": {
+            "type": "integer",
+            "example": 2048576
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "example": "Road surface damage at kilometer 5"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": ["damage", "road_surface"]
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-01T10:30:00Z"
+          },
+          "download_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Signed URL for download (expires in 60 minutes)",
+            "example": "https://storage.googleapis.com/bm-survey-photos/photos/2026/NR-001/NR-001_2026_L1_a1b2c3d4.jpg?Expires=..."
+          }
+        }
+      },
+      "UpdatePhotoRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "example": "Updated description"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": ["damage", "road_surface", "urgent"]
+          },
+          "lane_code": {
+            "type": "string",
+            "pattern": "^[LR]([1-9]|10)$",
+            "nullable": true,
+            "example": "R2"
+          }
+        }
+      },
+      "UpdatePhotoResponse": {
+        "type": "object",
+        "properties": {
+          "photo_id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "example": "Updated description"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": ["damage", "road_surface", "urgent"]
+          },
+          "lane_code": {
+            "type": "string",
+            "example": "R2"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-01T11:00:00Z"
+          }
+        }
+      },
+      "DeletePhotoResponse": {
+        "type": "object",
+        "properties": {
+          "photo_id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-01T12:00:00Z"
+          },
+          "deletion_type": {
+            "type": "string",
+            "enum": ["soft", "hard"],
+            "example": "soft"
+          }
+        }
+      },
+      "PhotoSummary": {
+        "type": "object",
+        "properties": {
+          "photo_id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "route_id": {
+            "type": "string",
+            "example": "NR-001"
+          },
+          "lane_code": {
+            "type": "string",
+            "example": "L1"
+          },
+          "sta_value": {
+            "type": "number",
+            "example": 5.2
+          },
+          "thumbnail_url": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://storage.googleapis.com/bm-survey-photos/..."
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-01T10:30:00Z"
+          }
+        }
+      },
+      "Pagination": {
+        "type": "object",
+        "properties": {
+          "current_page": {
+            "type": "integer",
+            "example": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "example": 20
+          },
+          "total_count": {
+            "type": "integer",
+            "format": "int64",
+            "example": 100
+          },
+          "total_pages": {
+            "type": "integer",
+            "example": 5
+          }
+        }
+      },
+      "BrowsePhotosResponse": {
+        "type": "object",
+        "properties": {
+          "photos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhotoSummary"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Human-readable error message"
+          },
+          "code": {
+            "type": "string",
+            "description": "Machine-readable error code"
+          },
+          "details": {
+            "type": "string",
+            "description": "Additional error details (e.g., field name for validation errors)"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "API Key for authentication. Contact Bina Marga IT team to obtain an API key with appropriate scopes."
+      }
+    }
+  }
+}
