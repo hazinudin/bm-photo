@@ -20,6 +20,7 @@ func NewRouter(
 	uploadSvc service.UploadService,
 	photoSvc service.PhotoService,
 	authSvc service.AuthService,
+	adminSvc service.AdminService,
 	gcsClient service.GCSClient,
 	dbPinger interface {
 		Ping(ctx context.Context) error
@@ -32,6 +33,7 @@ func NewRouter(
 	healthHandler := NewHealthHandler(dbPinger)
 	uploadHandler := NewUploadHandler(uploadSvc, logger)
 	photoHandler := NewPhotoHandler(photoSvc, gcsClient, logger)
+	adminHandler := NewAdminHandler(adminSvc, logger)
 
 	// Initialize middleware
 	mw := NewMiddleware(authSvc, logger)
@@ -48,6 +50,13 @@ func NewRouter(
 	))
 	mux.Handle("POST /api/v1/photos/confirm", withMiddleware(
 		http.HandlerFunc(uploadHandler.ConfirmUpload),
+		mw.Logging, mw.CORS, rateLimiter.Middleware, mw.APIKeyAuth, mw.RequireScope("write"),
+	))
+
+	// Retry upload endpoint (write scope required)
+	// POST /api/v1/photos/{photo_id}/new-signed-url
+	mux.Handle("POST /api/v1/photos/{photo_id}/new-signed-url", withMiddleware(
+		http.HandlerFunc(uploadHandler.GetNewSignedURL),
 		mw.Logging, mw.CORS, rateLimiter.Middleware, mw.APIKeyAuth, mw.RequireScope("write"),
 	))
 
@@ -74,6 +83,20 @@ func NewRouter(
 	// Photo admin endpoints (admin scope required)
 	mux.Handle("DELETE /api/v1/photos/{photo_id}", withMiddleware(
 		http.HandlerFunc(photoHandler.DeletePhoto),
+		mw.Logging, mw.CORS, rateLimiter.Middleware, mw.APIKeyAuth, mw.RequireScope("admin"),
+	))
+
+	// Admin API key management endpoints (admin scope required)
+	mux.Handle("POST /api/v1/admin/api-keys", withMiddleware(
+		http.HandlerFunc(adminHandler.CreateAPIKey),
+		mw.Logging, mw.CORS, rateLimiter.Middleware, mw.APIKeyAuth, mw.RequireScope("admin"),
+	))
+	mux.Handle("GET /api/v1/admin/api-keys", withMiddleware(
+		http.HandlerFunc(adminHandler.ListAPIKeys),
+		mw.Logging, mw.CORS, rateLimiter.Middleware, mw.APIKeyAuth, mw.RequireScope("admin"),
+	))
+	mux.Handle("DELETE /api/v1/admin/api-keys/{key_id}", withMiddleware(
+		http.HandlerFunc(adminHandler.RevokeAPIKey),
 		mw.Logging, mw.CORS, rateLimiter.Middleware, mw.APIKeyAuth, mw.RequireScope("admin"),
 	))
 

@@ -43,7 +43,7 @@ func (s *AuthServiceImpl) ValidateAPIKey(ctx context.Context, key string) (*repo
 
 	// Hash the API key to look up in database
 	// API keys are stored as SHA-256 hashes
-	keyHash := hashAPIKey(key)
+	keyHash := HashAPIKey(key)
 
 	// Look up API key by hash
 	apiKey, err := s.apiKeyRepo.GetByKeyHash(ctx, keyHash)
@@ -136,8 +136,9 @@ func hasScope(scopes []string, required string) bool {
 	return false
 }
 
-// hashAPIKey creates a SHA-256 hash of an API key
-func hashAPIKey(key string) string {
+// HashAPIKey creates a SHA-256 hash of an API key
+// This is exported so it can be reused by other services (e.g., admin service)
+func HashAPIKey(key string) string {
 	hash := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(hash[:])
 }

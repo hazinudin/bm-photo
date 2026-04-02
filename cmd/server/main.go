@@ -94,6 +94,7 @@ func main() {
 	uploadSvc := service.NewUploadService(photoRepo, pendingUploadRepo, gcsClient, serviceLogger)
 	photoSvc := service.NewPhotoService(photoRepo, gcsClient, serviceLogger, auditSvc)
 	authSvc := service.NewAuthService(apiKeyRepo, serviceLogger)
+	adminSvc := service.NewAdminService(apiKeyRepo, serviceLogger)
 
 	logger.Info("Services initialized")
 
@@ -102,6 +103,7 @@ func main() {
 		uploadSvc,
 		photoSvc,
 		authSvc,
+		adminSvc,
 		gcsClient,
 		db,
 		logger,
