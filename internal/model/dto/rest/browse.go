@@ -54,7 +54,7 @@ type PhotoSummary struct {
 	PhotoID      vo.PhotoID `json:"photo_id"`
 	RouteID      string     `json:"route_id"`
 	LaneCode     string     `json:"lane_code"`
-	STAValue     float64    `json:"sta_value"`
+	STAValue     *float64   `json:"sta_value,omitempty"`
 	ThumbnailURL string     `json:"thumbnail_url"`
 	UploadedAt   time.Time  `json:"uploaded_at"`
 }
