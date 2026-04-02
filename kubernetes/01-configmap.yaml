@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bm-photo-config
+  namespace: bm-photo
+  labels:
+    app.kubernetes.io/name: bm-photo
+    app.kubernetes.io/component: config
+data:
+  PORT: "8080"
+  LOG_LEVEL: "info"
+  GCS_BUCKET_NAME: "bm-survey-photos-prod"
+  DB_HOST: "bm-photo-postgres.database.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "bm_photos"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bm-photo-config-health
+  namespace: bm-photo
+  labels:
+    app.kubernetes.io/name: bm-photo
+    app.kubernetes.io/component: config
+data:
+  LIVENESS_PATH: "/health"
+  READINESS_PATH: "/ready"

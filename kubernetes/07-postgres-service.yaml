@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bm-photo-postgres
+  namespace: bm-photo
+  labels:
+    app.kubernetes.io/name: bm-photo
+    app.kubernetes.io/component: database
+spec:
+  type: CloudDNS
+  internalTrafficPolicy: Local
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+  selector:
+    app.kubernetes.io/name: bm-photo
+    app.kubernetes.io/component: database

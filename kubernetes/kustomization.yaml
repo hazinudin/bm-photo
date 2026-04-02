@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: bm-photo
+
+resources:
+  - 00-namespace.yaml
+  - 01-configmap.yaml
+  - 02-secret.yaml
+  - 03-deployment.yaml
+  - 04-service-account.yaml
+  - 05-ingress.yaml
+  - 06-hpa.yaml
+
+images:
+  - name: bm-photo
+    newName: bm-photo
+    newTag: latest

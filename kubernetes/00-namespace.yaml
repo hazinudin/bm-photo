@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bm-photo
+  labels:
+    app.kubernetes.io/name: bm-photo
+    app.kubernetes.io/managed-by: kubectl
