@@ -440,6 +440,8 @@ func TestPhoto_SetCoordinates_ValidValues_Succeeds(t *testing.T) {
 
 	err = photo.SetCoordinates(-6.2088, 106.8456)
 	assert.NoError(t, err)
-	assert.Equal(t, -6.2088, photo.Latitude())
-	assert.Equal(t, 106.8456, photo.Longitude())
+	assert.NotNil(t, photo.Latitude())
+	assert.NotNil(t, photo.Longitude())
+	assert.Equal(t, -6.2088, *photo.Latitude())
+	assert.Equal(t, 106.8456, *photo.Longitude())
 }

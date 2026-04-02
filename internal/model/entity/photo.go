@@ -17,7 +17,7 @@ type Photo struct {
 	// Location attributes
 	routeID     string
 	laneCode    string
-	coordinates vo.Coordinates
+	coordinates *vo.Coordinates
 
 	// Linear Reference System
 	staValue  *float64
@@ -157,14 +157,22 @@ func (p *Photo) LaneCode() string {
 	return p.laneCode
 }
 
-// Latitude returns the latitude coordinate
-func (p *Photo) Latitude() float64 {
-	return p.coordinates.Latitude()
+// Latitude returns the latitude coordinate (0 if not set)
+func (p *Photo) Latitude() *float64 {
+	if p.coordinates == nil {
+		return nil
+	}
+	v := p.coordinates.Latitude()
+	return &v
 }
 
-// Longitude returns the longitude coordinate
-func (p *Photo) Longitude() float64 {
-	return p.coordinates.Longitude()
+// Longitude returns the longitude coordinate (0 if not set)
+func (p *Photo) Longitude() *float64 {
+	if p.coordinates == nil {
+		return nil
+	}
+	v := p.coordinates.Longitude()
+	return &v
 }
 
 // STAValue returns the STA value
@@ -364,7 +372,7 @@ func (p *Photo) SetCoordinates(lat, lon float64) error {
 	if err != nil {
 		return err
 	}
-	p.coordinates = coords
+	p.coordinates = &coords
 	p.updatedAt = time.Now()
 	return nil
 }
@@ -431,8 +439,8 @@ type PhotoRowParams struct {
 	ID               vo.PhotoID
 	RouteID          string
 	LaneCode         string
-	Latitude         float64
-	Longitude        float64
+	Latitude         *float64
+	Longitude        *float64
 	StaValue         *float64
 	StaSource        *vo.STASource
 	GCSObjectName    string
@@ -457,11 +465,11 @@ type PhotoRowParams struct {
 // for use by the repository layer only.
 // Note: This function assumes the data coming from the database is valid.
 func NewPhotoFromRepository(params PhotoRowParams) *Photo {
-	// Create coordinates - using direct struct literal since we control the values
-	coords := vo.Coordinates{}
-	// Use reflection-free approach: create via setter-like pattern
-	// Since Coordinates has private fields, we need to use the constructor which validates
-	coords, _ = vo.NewCoordinates(params.Latitude, params.Longitude)
+	var coords *vo.Coordinates
+	if params.Latitude != nil && params.Longitude != nil {
+		c, _ := vo.NewCoordinates(*params.Latitude, *params.Longitude)
+		coords = &c
+	}
 
 	return &Photo{
 		id:               params.ID,
