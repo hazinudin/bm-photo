@@ -8,6 +8,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+var (
+	testLat  = -6.2088
+	testLon  = 106.8456
+	testLatP = &testLat
+	testLonP = &testLon
+)
+
 func TestGetSignedUploadURLRequest_Validate_ValidRequest(t *testing.T) {
 	staValue := 10.5
 	description := "Test photo"
@@ -32,8 +39,8 @@ func TestGetSignedUploadURLRequest_Validate_ValidRequest(t *testing.T) {
 				PhotoAttributes: PhotoAttributes{
 					RouteID:     "NR-001",
 					LaneCode:    "L1",
-					Latitude:    -6.2088,
-					Longitude:   106.8456,
+					Latitude:    testLatP,
+					Longitude:   testLonP,
 					STAValue:    &staValue,
 					Description: &description,
 					Tags:        []string{"test"},
@@ -57,8 +64,8 @@ func TestGetSignedUploadURLRequest_Validate_MissingFilename(t *testing.T) {
 		PhotoAttributes: PhotoAttributes{
 			RouteID:   "NR-001",
 			LaneCode:  "L1",
-			Latitude:  -6.2088,
-			Longitude: 106.8456,
+			Latitude:  testLatP,
+			Longitude: testLonP,
 		},
 	}
 
@@ -80,8 +87,8 @@ func TestGetSignedUploadURLRequest_Validate_MissingContentType(t *testing.T) {
 		PhotoAttributes: PhotoAttributes{
 			RouteID:   "NR-001",
 			LaneCode:  "L1",
-			Latitude:  -6.2088,
-			Longitude: 106.8456,
+			Latitude:  testLatP,
+			Longitude: testLonP,
 		},
 	}
 
@@ -114,8 +121,8 @@ func TestGetSignedUploadURLRequest_Validate_InvalidContentType(t *testing.T) {
 				PhotoAttributes: PhotoAttributes{
 					RouteID:   "NR-001",
 					LaneCode:  "L1",
-					Latitude:  -6.2088,
-					Longitude: 106.8456,
+					Latitude:  testLatP,
+					Longitude: testLonP,
 				},
 			}
 
@@ -149,8 +156,8 @@ func TestGetSignedUploadURLRequest_Validate_FileSizeLessOrEqualZero(t *testing.T
 				PhotoAttributes: PhotoAttributes{
 					RouteID:   "NR-001",
 					LaneCode:  "L1",
-					Latitude:  -6.2088,
-					Longitude: 106.8456,
+					Latitude:  testLatP,
+					Longitude: testLonP,
 				},
 			}
 
@@ -174,8 +181,8 @@ func TestGetSignedUploadURLRequest_Validate_FileSizeExceedsMax(t *testing.T) {
 		PhotoAttributes: PhotoAttributes{
 			RouteID:   "NR-001",
 			LaneCode:  "L1",
-			Latitude:  -6.2088,
-			Longitude: 106.8456,
+			Latitude:  testLatP,
+			Longitude: testLonP,
 		},
 	}
 
@@ -197,8 +204,8 @@ func TestGetSignedUploadURLRequest_Validate_MissingRouteID(t *testing.T) {
 		PhotoAttributes: PhotoAttributes{
 			RouteID:   "",
 			LaneCode:  "L1",
-			Latitude:  -6.2088,
-			Longitude: 106.8456,
+			Latitude:  testLatP,
+			Longitude: testLonP,
 		},
 	}
 
@@ -232,8 +239,8 @@ func TestGetSignedUploadURLRequest_Validate_InvalidLaneFormat(t *testing.T) {
 				PhotoAttributes: PhotoAttributes{
 					RouteID:   "NR-001",
 					LaneCode:  tt.laneCode,
-					Latitude:  -6.2088,
-					Longitude: 106.8456,
+					Latitude:  testLatP,
+					Longitude: testLonP,
 				},
 			}
 
@@ -250,10 +257,10 @@ func TestGetSignedUploadURLRequest_Validate_InvalidLaneFormat(t *testing.T) {
 func TestGetSignedUploadURLRequest_Validate_LatitudeOutOfRange(t *testing.T) {
 	tests := []struct {
 		name     string
-		latitude float64
+		latitude *float64
 	}{
-		{name: "latitude below -90", latitude: -91.0},
-		{name: "latitude above 90", latitude: 91.0},
+		{name: "latitude below -90", latitude: func() *float64 { v := -91.0; return &v }()},
+		{name: "latitude above 90", latitude: func() *float64 { v := 91.0; return &v }()},
 	}
 
 	for _, tt := range tests {
@@ -268,7 +275,7 @@ func TestGetSignedUploadURLRequest_Validate_LatitudeOutOfRange(t *testing.T) {
 					RouteID:   "NR-001",
 					LaneCode:  "L1",
 					Latitude:  tt.latitude,
-					Longitude: 106.8456,
+					Longitude: testLonP,
 				},
 			}
 
@@ -285,10 +292,10 @@ func TestGetSignedUploadURLRequest_Validate_LatitudeOutOfRange(t *testing.T) {
 func TestGetSignedUploadURLRequest_Validate_LongitudeOutOfRange(t *testing.T) {
 	tests := []struct {
 		name      string
-		longitude float64
+		longitude *float64
 	}{
-		{name: "longitude below -180", longitude: -181.0},
-		{name: "longitude above 180", longitude: 181.0},
+		{name: "longitude below -180", longitude: func() *float64 { v := -181.0; return &v }()},
+		{name: "longitude above 180", longitude: func() *float64 { v := 181.0; return &v }()},
 	}
 
 	for _, tt := range tests {
@@ -302,7 +309,7 @@ func TestGetSignedUploadURLRequest_Validate_LongitudeOutOfRange(t *testing.T) {
 				PhotoAttributes: PhotoAttributes{
 					RouteID:   "NR-001",
 					LaneCode:  "L1",
-					Latitude:  -6.2088,
+					Latitude:  testLatP,
 					Longitude: tt.longitude,
 				},
 			}
@@ -329,8 +336,8 @@ func TestGetSignedUploadURLRequest_Validate_STAValueNegative(t *testing.T) {
 		PhotoAttributes: PhotoAttributes{
 			RouteID:   "NR-001",
 			LaneCode:  "L1",
-			Latitude:  -6.2088,
-			Longitude: 106.8456,
+			Latitude:  testLatP,
+			Longitude: testLonP,
 			STAValue:  &negativeSTA,
 		},
 	}

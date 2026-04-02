@@ -12,8 +12,8 @@ type PhotoResponse struct {
 	PhotoID       vo.PhotoID    `json:"photo_id"`
 	RouteID       string        `json:"route_id"`
 	LaneCode      string        `json:"lane_code"`
-	Latitude      float64       `json:"latitude"`
-	Longitude     float64       `json:"longitude"`
+	Latitude      *float64      `json:"latitude,omitempty"`
+	Longitude     *float64      `json:"longitude,omitempty"`
 	STAValue      *float64      `json:"sta_value,omitempty"`
 	STASource     *vo.STASource `json:"sta_source,omitempty"`
 	FileFormat    vo.FileFormat `json:"file_format"`
