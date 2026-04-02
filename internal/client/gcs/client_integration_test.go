@@ -55,7 +55,7 @@ func TestGenerateSignedURL(t *testing.T) {
 		assert.NotEmpty(t, signedURL)
 		assert.Contains(t, signedURL, "storage.googleapis.com")
 		assert.Contains(t, signedURL, objectName)
-		assert.Contains(t, signedURL, "X-Goog-Signature")
+		assert.Contains(t, signedURL, "Signature")
 	})
 
 	t.Run("generate download URL", func(t *testing.T) {

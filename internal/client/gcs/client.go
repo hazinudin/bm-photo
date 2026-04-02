@@ -3,6 +3,7 @@ package gcs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -118,7 +119,7 @@ func (c *Client) FileExists(objectName string) (bool, error) {
 	obj := c.bucket.Object(objectName)
 	_, err := obj.Attrs(ctx)
 	if err != nil {
-		if err == storage.ErrObjectNotExist {
+		if errors.Is(err, storage.ErrObjectNotExist) {
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to check object existence: %w", err)
@@ -138,8 +139,8 @@ func (c *Client) DeleteFile(objectName string) error {
 
 	obj := c.bucket.Object(objectName)
 	if err := obj.Delete(ctx); err != nil {
-		if err == storage.ErrObjectNotExist {
-			return nil // Idempotent delete
+		if errors.Is(err, storage.ErrObjectNotExist) {
+			return nil
 		}
 		return fmt.Errorf("failed to delete object: %w", err)
 	}
