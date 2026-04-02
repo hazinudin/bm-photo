@@ -277,6 +277,14 @@ func (s *UploadServiceImpl) ConfirmUpload(
 		return nil, NewServiceError("INTERNAL_ERROR", "Failed to update upload status", err)
 	}
 
+	// Update photo upload status to completed
+	if err := s.photoRepo.UpdateUploadStatus(ctx, photo.ID(), vo.UploadStatusCompleted); err != nil {
+		s.logger.Error("Failed to update photo upload status", err, map[string]interface{}{
+			"photo_id": photo.ID().String(),
+		})
+		return nil, NewServiceError("INTERNAL_ERROR", "Failed to update photo status", err)
+	}
+
 	// Log success
 	s.logger.Info("Upload confirmed", map[string]interface{}{
 		"photo_id":     photo.ID().String(),
