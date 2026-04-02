@@ -156,6 +156,12 @@ func (c *Client) DeleteFile(objectName string) error {
 	return nil
 }
 
+// GetPublicURL returns the public URL for a GCS object
+func (c *Client) GetPublicURL(objectName string) string {
+	fullObjectName := c.testPrefix + objectName
+	return fmt.Sprintf("https://storage.googleapis.com/%s/%s", c.bucketName, fullObjectName)
+}
+
 // Close closes the GCS client connection
 func (c *Client) Close() error {
 	if c.client != nil {

@@ -80,6 +80,9 @@ type GCSClient interface {
 
 	// DeleteFile deletes a file from GCS
 	DeleteFile(objectName string) error
+
+	// GetPublicURL returns the public URL for a GCS object
+	GetPublicURL(objectName string) string
 }
 
 // Logger defines the logging interface used by services
