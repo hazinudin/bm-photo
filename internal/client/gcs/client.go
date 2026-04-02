@@ -21,6 +21,7 @@ type Client struct {
 	bucket         *storage.BucketHandle
 	bucketName     string
 	serviceAccount *ServiceAccountInfo
+	testPrefix     string
 }
 
 // ServiceAccountInfo holds parsed service account details
@@ -71,6 +72,7 @@ func NewClient(ctx context.Context, config Config) (*Client, error) {
 		bucket:         bucket,
 		bucketName:     config.BucketName,
 		serviceAccount: &serviceAccount,
+		testPrefix:     config.TestPrefix,
 	}, nil
 }
 
@@ -79,6 +81,8 @@ func (c *Client) GenerateSignedURL(objectName string, contentType string, expiry
 	if objectName == "" {
 		return "", fmt.Errorf("object name cannot be empty")
 	}
+
+	fullObjectName := c.testPrefix + objectName
 
 	if expiryMinutes <= 0 {
 		expiryMinutes = 15
@@ -99,7 +103,7 @@ func (c *Client) GenerateSignedURL(objectName string, contentType string, expiry
 		ContentType:    contentType,
 	}
 
-	url, err := storage.SignedURL(c.bucketName, objectName, opts)
+	url, err := storage.SignedURL(c.bucketName, fullObjectName, opts)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrSignedURLFailed, err)
 	}
@@ -113,10 +117,12 @@ func (c *Client) FileExists(objectName string) (bool, error) {
 		return false, fmt.Errorf("object name cannot be empty")
 	}
 
+	fullObjectName := c.testPrefix + objectName
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	obj := c.bucket.Object(objectName)
+	obj := c.bucket.Object(fullObjectName)
 	_, err := obj.Attrs(ctx)
 	if err != nil {
 		if errors.Is(err, storage.ErrObjectNotExist) {
@@ -134,10 +140,12 @@ func (c *Client) DeleteFile(objectName string) error {
 		return fmt.Errorf("object name cannot be empty")
 	}
 
+	fullObjectName := c.testPrefix + objectName
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	obj := c.bucket.Object(objectName)
+	obj := c.bucket.Object(fullObjectName)
 	if err := obj.Delete(ctx); err != nil {
 		if errors.Is(err, storage.ErrObjectNotExist) {
 			return nil
