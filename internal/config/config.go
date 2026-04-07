@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -32,11 +33,19 @@ type GCSConfig struct {
 	TestPrefix      string `env:"GCS_TEST_PREFIX" env-default:""`
 }
 
+// CleanupConfig holds cleanup job configuration.
+type CleanupConfig struct {
+	Enabled         bool
+	Interval        time.Duration
+	RetentionPeriod time.Duration
+}
+
 // Config holds all application configuration.
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	GCS      GCSConfig
+	Cleanup  CleanupConfig
 }
 
 // Load reads configuration from environment variables.
@@ -119,6 +128,31 @@ func Load() (*Config, error) {
 
 	if testPrefix := os.Getenv("GCS_TEST_PREFIX"); testPrefix != "" {
 		cfg.GCS.TestPrefix = testPrefix
+	}
+
+	// Load Cleanup config
+	cfg.Cleanup.Enabled = true // default
+	if cleanupEnabled := os.Getenv("CLEANUP_ENABLED"); cleanupEnabled != "" {
+		enabled, err := strconv.ParseBool(cleanupEnabled)
+		if err == nil {
+			cfg.Cleanup.Enabled = enabled
+		}
+	}
+
+	cfg.Cleanup.Interval = 5 * time.Minute // default
+	if cleanupInterval := os.Getenv("CLEANUP_INTERVAL"); cleanupInterval != "" {
+		duration, err := time.ParseDuration(cleanupInterval)
+		if err == nil {
+			cfg.Cleanup.Interval = duration
+		}
+	}
+
+	cfg.Cleanup.RetentionPeriod = 24 * time.Hour // default
+	if cleanupRetention := os.Getenv("CLEANUP_RETENTION"); cleanupRetention != "" {
+		duration, err := time.ParseDuration(cleanupRetention)
+		if err == nil {
+			cfg.Cleanup.RetentionPeriod = duration
+		}
 	}
 
 	if len(dbErrs) > 0 {
