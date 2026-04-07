@@ -70,3 +70,12 @@ var AllowedFileFormats = []string{"JPEG", "PNG"}
 
 // ValidUploadStatuses is the list of valid upload statuses
 var ValidUploadStatuses = []string{"pending", "completed", "expired"}
+
+// Cleanup defaults
+const (
+	// DefaultCleanupInterval is the default interval between cleanup runs
+	DefaultCleanupInterval = 5 * time.Minute
+
+	// DefaultCleanupRetention is the default retention period for expired uploads
+	DefaultCleanupRetention = 24 * time.Hour
+)
