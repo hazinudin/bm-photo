@@ -96,9 +96,26 @@ func main() {
 	authSvc := service.NewAuthService(apiKeyRepo, serviceLogger)
 	adminSvc := service.NewAdminService(apiKeyRepo, serviceLogger)
 
+	// Initialize cleanup service
+	cleanupSvc := service.NewCleanupService(
+		pendingUploadRepo,
+		serviceLogger,
+		cfg.Cleanup.Interval,
+		cfg.Cleanup.RetentionPeriod,
+	)
+
 	logger.Info("Services initialized")
 
-	// 8. Build router
+	// 8. Start cleanup service if enabled
+	if cfg.Cleanup.Enabled {
+		cleanupSvc.Start(ctx)
+		logger.Info("Cleanup service started",
+			slog.Duration("interval", cfg.Cleanup.Interval),
+			slog.Duration("retention_period", cfg.Cleanup.RetentionPeriod),
+		)
+	}
+
+	// 9. Build router
 	router := handler.NewRouter(
 		uploadSvc,
 		photoSvc,
@@ -134,6 +151,12 @@ func main() {
 	<-quit
 
 	logger.Info("Shutting down server...")
+
+	// Stop cleanup service if enabled
+	if cfg.Cleanup.Enabled {
+		cleanupSvc.Stop()
+		logger.Info("Cleanup service stopped")
+	}
 
 	// Create shutdown context with timeout
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
