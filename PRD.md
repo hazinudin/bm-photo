@@ -1,9 +1,9 @@
 # Product Requirements Document (PRD)
 # Bina Marga Survey Photo Service
 
-**Version:** 1.5  
-**Date:** April 1, 2026  
-**Status:** In Progress - API Design Updated with Retry Endpoint  
+**Version:** 1.6  
+**Date:** April 8, 2026  
+**Status:** In Progress - Added Coordinate Update Support  
 
 ---
 
@@ -475,8 +475,9 @@ by other services when coordinate data becomes available.
 - **Priority:** Should Have
 - **API Method:** PATCH /api/v1/photos/{photo_id}
 - **Description:** Update metadata attributes (not the photo file itself)
-- **Editable Fields:** description, tags, lane_code
+- **Editable Fields:** description, tags, lane_code, latitude, longitude, sta_value
 - **Authentication:** API Key with write permissions
+- **Note:** Coordinates (latitude/longitude) must be provided together. When sta_value is updated, sta_source is set to user_provided.
 
 #### 2.3.2 Delete Photo
 - **Priority:** Must Have
@@ -1224,12 +1225,30 @@ PATCH /api/v1/photos/{photo_id}
 Content-Type: application/json
 ```
 
+**Editable Fields:**
+- `description` (string, optional): Photo description
+- `tags` (array of strings, optional): Tags for categorization
+- `lane_code` (string, optional): Lane identifier (L1-L10 or R1-R10)
+- `latitude` (decimal, optional): Latitude coordinate (EPSG:4326)
+- `longitude` (decimal, optional): Longitude coordinate (EPSG:4326)
+- `sta_value` (decimal, optional): Station value along route
+
+**Validation Rules:**
+- Both `latitude` and `longitude` must be provided together (partial updates rejected)
+- Latitude must be between -90 and 90
+- Longitude must be between -180 and 180
+- STA value must be >= 0
+- When `sta_value` is updated, `sta_source` is set to `user_provided`
+
 **Request:**
 ```json
 {
   "description": "Updated description",
   "tags": ["damage", "road_surface", "urgent"],
   "lane_code": "R2",
+  "latitude": -6.2088,
+  "longitude": 106.8456,
+  "sta_value": 1234.5
 }
 ```
 
@@ -1240,9 +1259,18 @@ Content-Type: application/json
   "description": "Updated description",
   "tags": ["damage", "road_surface", "urgent"],
   "lane_code": "R2",
+  "latitude": -6.2088,
+  "longitude": 106.8456,
+  "sta_value": 1234.5,
+  "sta_source": "user_provided",
   "updated_at": "2024-01-15T11:00:00Z"
 }
 ```
+
+**Error Responses:**
+- 400 Bad Request: Invalid field values or partial coordinate update
+- 404 Not Found: Photo ID does not exist
+- 401 Unauthorized: Invalid API key
 
 #### 6.1.13 Delete Photo
 
@@ -2326,6 +2354,7 @@ func runMigrations(dbURL string) error {
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-03-26 | Initial | Initial PRD creation |
+| 1.6 | 2026-04-08 | Update | Added coordinate and STA update support to PATCH endpoint |
 
 ---
 
