@@ -225,6 +225,15 @@ func ParseQueryString(r *http.Request, name string) *string {
 	return nil
 }
 
+func ParseQueryBool(r *http.Request, name string) *bool {
+	if val := r.URL.Query().Get(name); val != "" {
+		if b, err := strconv.ParseBool(val); err == nil {
+			return &b
+		}
+	}
+	return nil
+}
+
 func Contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {

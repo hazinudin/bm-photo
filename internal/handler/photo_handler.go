@@ -83,6 +83,9 @@ func (h *PhotoHandler) BrowsePhotos(w http.ResponseWriter, r *http.Request) {
 	if lane := ParseQueryString(r, "lane_code"); lane != nil {
 		filter.Lane = lane
 	}
+	if uploadedOnly := ParseQueryBool(r, "uploaded_only"); uploadedOnly != nil {
+		filter.UploadedOnly = uploadedOnly
+	}
 
 	resp, err := h.photoSvc.Browse(ctx, filter)
 	if err != nil {

@@ -75,6 +75,9 @@ type BrowseFilter struct {
 	// Lane filters photos by lane code.
 	Lane *string
 
+	// UploadedOnly filters photos that have been uploaded (upload_status = 'completed').
+	UploadedOnly *bool
+
 	// Page is the page number (1-indexed).
 	Page int
 

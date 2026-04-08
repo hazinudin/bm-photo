@@ -381,6 +381,12 @@ func (r *PhotoRepository) Browse(ctx context.Context, filter repository.BrowseFi
 		argIndex++
 	}
 
+	if filter.UploadedOnly != nil && *filter.UploadedOnly {
+		whereClause += fmt.Sprintf(" AND upload_status = $%d", argIndex)
+		args = append(args, vo.UploadStatusCompleted.String())
+		argIndex++
+	}
+
 	// Count total
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM photos %s", whereClause)
 	var totalCount int64
