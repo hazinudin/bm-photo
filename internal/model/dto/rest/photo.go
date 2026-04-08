@@ -29,6 +29,9 @@ type UpdatePhotoRequest struct {
 	Description *string  `json:"description,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
 	LaneCode    *string  `json:"lane_code,omitempty"`
+	Latitude    *float64 `json:"latitude,omitempty"`
+	Longitude   *float64 `json:"longitude,omitempty"`
+	STAValue    *float64 `json:"sta_value,omitempty"`
 }
 
 // Validate validates the update photo request.
@@ -36,16 +39,39 @@ func (r *UpdatePhotoRequest) Validate() error {
 	if r.LaneCode != nil && !IsValidLaneCode(*r.LaneCode) {
 		return model.NewValidationError("lane_code", "lane_code must be in format L1-L10 or R1-R10")
 	}
+
+	hasLat := r.Latitude != nil
+	hasLon := r.Longitude != nil
+	if hasLat != hasLon {
+		return model.NewValidationError("coordinates", "both latitude and longitude must be provided together")
+	}
+
+	if r.Latitude != nil && (*r.Latitude < -90 || *r.Latitude > 90) {
+		return model.NewValidationError("latitude", "latitude must be between -90 and 90")
+	}
+
+	if r.Longitude != nil && (*r.Longitude < -180 || *r.Longitude > 180) {
+		return model.NewValidationError("longitude", "longitude must be between -180 and 180")
+	}
+
+	if r.STAValue != nil && *r.STAValue < 0 {
+		return model.NewValidationError("sta_value", "sta_value must be greater than or equal to 0")
+	}
+
 	return nil
 }
 
 // UpdatePhotoResponse - Confirmation of update.
 type UpdatePhotoResponse struct {
-	PhotoID     vo.PhotoID `json:"photo_id"`
-	Description *string    `json:"description,omitempty"`
-	Tags        []string   `json:"tags"`
-	LaneCode    string     `json:"lane_code"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	PhotoID     vo.PhotoID    `json:"photo_id"`
+	Description *string       `json:"description,omitempty"`
+	Tags        []string      `json:"tags"`
+	LaneCode    string        `json:"lane_code"`
+	Latitude    *float64      `json:"latitude,omitempty"`
+	Longitude   *float64      `json:"longitude,omitempty"`
+	STAValue    *float64      `json:"sta_value,omitempty"`
+	STASource   *vo.STASource `json:"sta_source,omitempty"`
+	UpdatedAt   time.Time     `json:"updated_at"`
 }
 
 // IsValidLaneCode validates that the lane code matches the format L1-L10 or R1-R10

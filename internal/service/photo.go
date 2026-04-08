@@ -223,6 +223,18 @@ func (s *PhotoServiceImpl) Update(
 		}
 	}
 
+	if req.Latitude != nil && req.Longitude != nil {
+		if err := photo.SetCoordinates(*req.Latitude, *req.Longitude); err != nil {
+			return nil, err
+		}
+	}
+
+	if req.STAValue != nil {
+		if err := photo.SetSTA(*req.STAValue, vo.STASourceUserProvided); err != nil {
+			return nil, err
+		}
+	}
+
 	// Save to repository
 	if err := s.photoRepo.Update(ctx, photo); err != nil {
 		s.logger.Error("Failed to update photo", err, map[string]interface{}{
@@ -236,6 +248,9 @@ func (s *PhotoServiceImpl) Update(
 		"description": req.Description,
 		"tags":        req.Tags,
 		"lane_code":   req.LaneCode,
+		"latitude":    req.Latitude,
+		"longitude":   req.Longitude,
+		"sta_value":   req.STAValue,
 	})
 
 	s.logger.Info("Photo updated", map[string]interface{}{
@@ -247,6 +262,10 @@ func (s *PhotoServiceImpl) Update(
 		Description: photo.Description(),
 		Tags:        photo.Tags(),
 		LaneCode:    photo.LaneCode(),
+		Latitude:    photo.Latitude(),
+		Longitude:   photo.Longitude(),
+		STAValue:    photo.STAValue(),
+		STASource:   photo.STASource(),
 		UpdatedAt:   photo.UpdatedAt(),
 	}, nil
 }
