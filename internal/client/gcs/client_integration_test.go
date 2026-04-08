@@ -278,7 +278,7 @@ func TestEndToEndUploadConfirm(t *testing.T) {
 	assert.True(t, exists, "Phase 3: File should exist after upload")
 
 	// Phase 4: Generate download URL and verify access
-	downloadURL, err := client.GenerateSignedURL(objectName, "", 15)
+	downloadURL, err := client.GenerateDownloadURL(objectName, 15)
 	require.NoError(t, err, "Phase 4: Generate download URL failed")
 
 	// Download and verify content
@@ -298,6 +298,10 @@ func TestEndToEndUploadConfirm(t *testing.T) {
 	exists, err = client.FileExists(objectName)
 	require.NoError(t, err, "Phase 6: File existence check failed")
 	assert.False(t, exists, "Phase 6: File should not exist after deletion")
+
+	// Phase 7: Verify GenerateDownloadURL returns error for missing object
+	_, err = client.GenerateDownloadURL(objectName, 15)
+	assert.ErrorIs(t, err, ErrObjectNotFound, "Phase 7: GenerateDownloadURL should return ErrObjectNotFound for missing object")
 }
 
 // TestClientClose tests client cleanup

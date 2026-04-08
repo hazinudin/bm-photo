@@ -69,6 +69,19 @@ func TestGetPhoto_DeletedPhoto_Returns404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
+// TestGetPhoto_GCSObjectMissing_Returns404 tests getting a photo whose GCS object is missing
+func TestGetPhoto_GCSObjectMissing_Returns404(t *testing.T) {
+	ts := setupTestServer(t)
+	apiKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "admin"})
+	photoID := createCompletedTestPhotoWithoutGCS(t, ts, apiKey, "NR-001", "L1")
+	defer cleanupGCSObject(t, ts.gcsClient, getGCSObjectNameForPhoto(photoID, "NR-001", "L1"))
+
+	resp := doRequest(t, ts.Server, http.MethodGet, fmt.Sprintf("/api/v1/photos/%s", photoID), nil, apiKey)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
 // TestGetPhoto_InvalidID_Returns400 tests getting a photo with malformed UUID
 func TestGetPhoto_InvalidID_Returns400(t *testing.T) {
 	ts := setupTestServer(t)
@@ -568,6 +581,45 @@ func createCompletedTestPhoto(t *testing.T, ts *testServer, apiKey *repository.A
 			}
 		}
 	}
+
+	return photoID
+}
+
+// createCompletedTestPhotoWithoutGCS creates a completed photo in DB without uploading to GCS
+func createCompletedTestPhotoWithoutGCS(t *testing.T, ts *testServer, apiKey *repository.APIKey, routeID, laneCode string) vo.PhotoID {
+	t.Helper()
+
+	ctx := context.Background()
+
+	photoID := vo.NewPhotoID()
+	gcsObjectName := fmt.Sprintf("photos/2026/%s/%s_2026_%s_%s.jpg",
+		routeID, routeID, laneCode, photoID.String()[:8])
+
+	params := entity.PhotoParams{
+		RouteID:          routeID,
+		LaneCode:         laneCode,
+		GCSObjectName:    gcsObjectName,
+		FileFormat:       vo.FileFormatJPEG,
+		FileSizeBytes:    1024 * 100,
+		OriginalFilename: strPtr("test_photo.jpg"),
+		UploadToken:      vo.NewUploadToken(),
+		UploadedBy:       "test-api-key",
+	}
+
+	photo, err := entity.NewPhoto(params)
+	require.NoError(t, err, "failed to create photo entity")
+
+	err = photo.SetCoordinates(-6.2088, 106.8456)
+	require.NoError(t, err, "failed to set coordinates")
+
+	err = photo.SetSTA(5.5, vo.STASourceUserProvided)
+	require.NoError(t, err, "failed to set STA")
+
+	err = photo.MarkUploadCompleted()
+	require.NoError(t, err, "failed to mark upload completed")
+
+	err = ts.photoRepo.Create(ctx, photo)
+	require.NoError(t, err, "failed to create photo in database")
 
 	return photoID
 }

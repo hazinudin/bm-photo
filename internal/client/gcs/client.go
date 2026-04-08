@@ -156,6 +156,44 @@ func (c *Client) DeleteFile(objectName string) error {
 	return nil
 }
 
+// GenerateDownloadURL generates a signed URL for downloading a file (GET method).
+// Returns ErrObjectNotFound if the object does not exist in GCS.
+func (c *Client) GenerateDownloadURL(objectName string, expiryMinutes int) (string, error) {
+	if objectName == "" {
+		return "", fmt.Errorf("object name cannot be empty")
+	}
+
+	fullObjectName := c.testPrefix + objectName
+
+	if expiryMinutes <= 0 {
+		expiryMinutes = 15
+	}
+
+	exists, err := c.FileExists(objectName)
+	if err != nil {
+		return "", fmt.Errorf("failed to check object existence: %w", err)
+	}
+	if !exists {
+		return "", ErrObjectNotFound
+	}
+
+	expiry := time.Now().Add(time.Duration(expiryMinutes) * time.Minute)
+
+	opts := &storage.SignedURLOptions{
+		GoogleAccessID: c.serviceAccount.ClientEmail,
+		PrivateKey:     []byte(c.serviceAccount.PrivateKey),
+		Method:         http.MethodGet,
+		Expires:        expiry,
+	}
+
+	url, err := storage.SignedURL(c.bucketName, fullObjectName, opts)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrSignedURLFailed, err)
+	}
+
+	return url, nil
+}
+
 // GetPublicURL returns the public URL for a GCS object
 func (c *Client) GetPublicURL(objectName string) string {
 	fullObjectName := c.testPrefix + objectName

@@ -55,7 +55,8 @@ func (h *PhotoHandler) GetPhoto(w http.ResponseWriter, r *http.Request) {
 
 	downloadURL, err := service.GenerateDownloadURL(h.gcsClient, photo.GCSObjectName(), downloadURLExpiryMinutes)
 	if err != nil {
-		h.logger.Warn("failed to generate download URL", "error", err, "photo_id", photoIDStr)
+		h.handlePhotoError(w, err)
+		return
 	}
 
 	resp := service.BuildPhotoResponse(photo, downloadURL)
@@ -188,7 +189,7 @@ func (h *PhotoHandler) DownloadPhoto(w http.ResponseWriter, r *http.Request) {
 
 	signedURL, err := service.GenerateDownloadURL(h.gcsClient, photo.GCSObjectName(), downloadURLExpiryMinutes)
 	if err != nil {
-		h.handleServiceError(w, err)
+		h.handlePhotoError(w, err)
 		return
 	}
 
@@ -202,6 +203,10 @@ func (h *PhotoHandler) handlePhotoError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, service.ErrPhotoDeleted) {
 		h.writeError(w, http.StatusNotFound, "photo has been deleted", "NOT_FOUND")
+		return
+	}
+	if errors.Is(err, service.ErrFileNotFound) {
+		h.writeError(w, http.StatusNotFound, "photo file not found in storage", "FILE_NOT_FOUND")
 		return
 	}
 	if ve, ok := err.(*model.ValidationError); ok {

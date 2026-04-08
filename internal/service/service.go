@@ -75,6 +75,10 @@ type GCSClient interface {
 	// GenerateSignedURL generates a signed URL for uploading a file
 	GenerateSignedURL(objectName string, contentType string, expiryMinutes int) (string, error)
 
+	// GenerateDownloadURL generates a signed URL for downloading a file (GET method).
+	// Returns service.ErrFileNotFound if the object does not exist in GCS.
+	GenerateDownloadURL(objectName string, expiryMinutes int) (string, error)
+
 	// FileExists checks if a file exists in GCS
 	FileExists(objectName string) (bool, error)
 

@@ -375,10 +375,18 @@ func BuildPhotoResponse(photo *entity.Photo, downloadURL string) *rest.PhotoResp
 	return resp
 }
 
-// GenerateDownloadURL generates a signed download URL for a photo
+// GenerateDownloadURL generates a signed download URL for a photo.
+// Returns service.ErrFileNotFound if the object does not exist in GCS.
 func GenerateDownloadURL(gcsClient GCSClient, objectName string, expiryMinutes int) (string, error) {
 	if gcsClient == nil {
 		return "", errors.New("GCS client not configured")
 	}
-	return gcsClient.GenerateSignedURL(objectName, "image/jpeg", expiryMinutes)
+	url, err := gcsClient.GenerateDownloadURL(objectName, expiryMinutes)
+	if err != nil {
+		if err == ErrFileNotFound {
+			return "", ErrFileNotFound
+		}
+		return "", err
+	}
+	return url, nil
 }
