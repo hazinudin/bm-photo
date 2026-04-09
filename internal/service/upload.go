@@ -38,8 +38,7 @@ func NewUploadService(
 
 // generateGCSObjectName generates a GCS object name following the naming convention:
 // photos/{year}/{route_id}/{route_id}_{year}_{lane}_{shortuuid}.{ext}
-func generateGCSObjectName(routeID, laneCode, contentType string) string {
-	year := time.Now().Year()
+func generateGCSObjectName(routeID, laneCode, contentType string, year int) string {
 	shortUUID := vo.NewPhotoID().String()[:8]
 	// Derive extension from content type
 	ext := "jpg"
@@ -93,6 +92,12 @@ func (s *UploadServiceImpl) GetSignedURL(
 	// Generate upload token
 	uploadToken := vo.NewUploadToken()
 
+	// Extract survey year - default to current year if not provided
+	surveyYear := time.Now().Year()
+	if req.PhotoAttributes.SurveyYear != nil {
+		surveyYear = *req.PhotoAttributes.SurveyYear
+	}
+
 	// Generate GCS object name using the naming convention
 	// Route ID and lane may be empty initially, will be updated in confirm phase
 	routeID := req.PhotoAttributes.RouteID
@@ -100,12 +105,13 @@ func (s *UploadServiceImpl) GetSignedURL(
 	if laneCode == "" {
 		laneCode = "unknown"
 	}
-	gcsObjectName := generateGCSObjectName(routeID, laneCode, req.FileMetadata.ContentType)
+	gcsObjectName := generateGCSObjectName(routeID, laneCode, req.FileMetadata.ContentType, surveyYear)
 
 	// Create photo entity with pending status
 	photoParams := entity.PhotoParams{
 		RouteID:          routeID,
 		LaneCode:         laneCode,
+		SurveyYear:       surveyYear,
 		GCSObjectName:    gcsObjectName,
 		FileFormat:       fileFormat,
 		FileSizeBytes:    req.FileMetadata.FileSizeBytes,

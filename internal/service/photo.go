@@ -109,6 +109,7 @@ func (s *PhotoServiceImpl) Browse(ctx context.Context, filter repository.BrowseF
 			GCSURL:           s.gcsClient.GetPublicURL(photo.GCSObjectName()),
 			UploadedAt:       photo.UploadedAt(),
 			OriginalFileName: *photo.OriginalFilename(),
+			SurveyYear:       photo.SurveyYear(),
 		})
 	}
 
@@ -167,6 +168,7 @@ func (s *PhotoServiceImpl) Search(ctx context.Context, filter repository.SearchF
 			STAValue:   photo.STAValue(),
 			GCSURL:     s.gcsClient.GetPublicURL(photo.GCSObjectName()),
 			UploadedAt: photo.UploadedAt(),
+			SurveyYear: photo.SurveyYear(),
 		})
 	}
 
@@ -235,6 +237,12 @@ func (s *PhotoServiceImpl) Update(
 		}
 	}
 
+	if req.SurveyYear != nil {
+		if err := photo.SetSurveyYear(*req.SurveyYear); err != nil {
+			return nil, err
+		}
+	}
+
 	// Save to repository
 	if err := s.photoRepo.Update(ctx, photo); err != nil {
 		s.logger.Error("Failed to update photo", err, map[string]interface{}{
@@ -251,6 +259,7 @@ func (s *PhotoServiceImpl) Update(
 		"latitude":    req.Latitude,
 		"longitude":   req.Longitude,
 		"sta_value":   req.STAValue,
+		"survey_year": req.SurveyYear,
 	})
 
 	s.logger.Info("Photo updated", map[string]interface{}{
@@ -267,6 +276,7 @@ func (s *PhotoServiceImpl) Update(
 		STAValue:    photo.STAValue(),
 		STASource:   photo.STASource(),
 		UpdatedAt:   photo.UpdatedAt(),
+		SurveyYear:  photo.SurveyYear(),
 	}, nil
 }
 
@@ -389,6 +399,7 @@ func BuildPhotoResponse(photo *entity.Photo, downloadURL string) *rest.PhotoResp
 		Tags:          photo.Tags(),
 		UploadedAt:    photo.UploadedAt(),
 		DownloadURL:   downloadURL,
+		SurveyYear:    photo.SurveyYear(),
 	}
 
 	return resp
