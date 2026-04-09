@@ -29,6 +29,7 @@ type photoRow struct {
 	PhotoID          string
 	RouteID          string
 	LaneCode         string
+	SurveyYear       int
 	Latitude         *float64 // nullable
 	Longitude        *float64 // nullable
 	StaValue         *float64 // nullable
@@ -85,6 +86,7 @@ func (r *photoRow) toEntity() (*entity.Photo, error) {
 		ID:               photoID,
 		RouteID:          r.RouteID,
 		LaneCode:         r.LaneCode,
+		SurveyYear:       r.SurveyYear,
 		Latitude:         r.Latitude,
 		Longitude:        r.Longitude,
 		StaValue:         r.StaValue,
@@ -112,19 +114,19 @@ func (r *photoRow) toEntity() (*entity.Photo, error) {
 func (r *PhotoRepository) Create(ctx context.Context, photo *entity.Photo) error {
 	query := `
 		INSERT INTO photos (
-			photo_id, route_id, lane_code, latitude, longitude,
+			photo_id, route_id, lane_code, survey_year, latitude, longitude,
 			sta_value, sta_source, gcs_object_name,
 			file_format, file_size_bytes, original_filename,
 			description, tags,
 			upload_token, upload_status, uploaded_by, uploaded_at,
 			created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5,
-			$6, $7, $8,
-			$9, $10, $11,
-			$12, $13,
-			$14, $15, $16, $17,
-			$18, $19
+			$1, $2, $3, $4, $5, $6,
+			$7, $8, $9,
+			$10, $11, $12,
+			$13, $14,
+			$15, $16, $17, $18,
+			$19, $20
 		)`
 
 	var staSourceStr *string
@@ -137,6 +139,7 @@ func (r *PhotoRepository) Create(ctx context.Context, photo *entity.Photo) error
 		photo.ID().String(),
 		photo.RouteID(),
 		photo.LaneCode(),
+		photo.SurveyYear(),
 		photo.Latitude(),
 		photo.Longitude(),
 		photo.STAValue(),
@@ -164,7 +167,7 @@ func (r *PhotoRepository) Create(ctx context.Context, photo *entity.Photo) error
 
 func (r *PhotoRepository) GetByID(ctx context.Context, id vo.PhotoID) (*entity.Photo, error) {
 	query := `
-		SELECT photo_id, route_id, lane_code, latitude, longitude,
+		SELECT photo_id, route_id, lane_code, survey_year, latitude, longitude,
 			sta_value, sta_source, gcs_object_name,
 			file_format, file_size_bytes, original_filename,
 			description, tags,
@@ -181,7 +184,7 @@ func (r *PhotoRepository) GetByID(ctx context.Context, id vo.PhotoID) (*entity.P
 
 func (r *PhotoRepository) GetByIDIncludeDeleted(ctx context.Context, id vo.PhotoID) (*entity.Photo, error) {
 	query := `
-		SELECT photo_id, route_id, lane_code, latitude, longitude,
+		SELECT photo_id, route_id, lane_code, survey_year, latitude, longitude,
 			sta_value, sta_source, gcs_object_name,
 			file_format, file_size_bytes, original_filename,
 			description, tags,
@@ -198,7 +201,7 @@ func (r *PhotoRepository) GetByIDIncludeDeleted(ctx context.Context, id vo.Photo
 
 func (r *PhotoRepository) GetByUploadToken(ctx context.Context, token vo.UploadToken) (*entity.Photo, error) {
 	query := `
-		SELECT photo_id, route_id, lane_code, latitude, longitude,
+		SELECT photo_id, route_id, lane_code, survey_year, latitude, longitude,
 			sta_value, sta_source, gcs_object_name,
 			file_format, file_size_bytes, original_filename,
 			description, tags,
@@ -381,6 +384,12 @@ func (r *PhotoRepository) Browse(ctx context.Context, filter repository.BrowseFi
 		argIndex++
 	}
 
+	if filter.SurveyYear != nil {
+		whereClause += fmt.Sprintf(" AND survey_year = $%d", argIndex)
+		args = append(args, *filter.SurveyYear)
+		argIndex++
+	}
+
 	if filter.UploadedOnly != nil && *filter.UploadedOnly {
 		whereClause += fmt.Sprintf(" AND upload_status = $%d", argIndex)
 		args = append(args, vo.UploadStatusCompleted.String())
@@ -396,7 +405,7 @@ func (r *PhotoRepository) Browse(ctx context.Context, filter repository.BrowseFi
 
 	// Query photos with pagination
 	query := fmt.Sprintf(`
-		SELECT photo_id, route_id, lane_code, latitude, longitude,
+		SELECT photo_id, route_id, lane_code, survey_year, latitude, longitude,
 			sta_value, sta_source, gcs_object_name,
 			file_format, file_size_bytes, original_filename,
 			description, tags,
@@ -482,6 +491,17 @@ func (r *PhotoRepository) Search(ctx context.Context, filter repository.SearchFi
 		whereClause += fmt.Sprintf(" AND lane_code IN (%s)", strings.Join(placeholders, ","))
 	}
 
+	// Survey years filter (IN clause)
+	if len(filter.SurveyYears) > 0 {
+		placeholders := make([]string, len(filter.SurveyYears))
+		for i, year := range filter.SurveyYears {
+			placeholders[i] = fmt.Sprintf("$%d", argIndex)
+			args = append(args, year)
+			argIndex++
+		}
+		whereClause += fmt.Sprintf(" AND survey_year IN (%s)", strings.Join(placeholders, ","))
+	}
+
 	// Date range filter
 	if filter.DateStart != nil {
 		whereClause += fmt.Sprintf(" AND uploaded_at >= $%d", argIndex)
@@ -511,7 +531,7 @@ func (r *PhotoRepository) Search(ctx context.Context, filter repository.SearchFi
 
 	// Query photos with pagination
 	query := fmt.Sprintf(`
-		SELECT photo_id, route_id, lane_code, latitude, longitude,
+		SELECT photo_id, route_id, lane_code, survey_year, latitude, longitude,
 			sta_value, sta_source, gcs_object_name,
 			file_format, file_size_bytes, original_filename,
 			description, tags,
@@ -617,7 +637,7 @@ func (r *PhotoRepository) IncrementRetryCount(ctx context.Context, id vo.PhotoID
 
 func (r *PhotoRepository) FindPendingByIDAndAPIKey(ctx context.Context, id vo.PhotoID, apiKeyID string) (*entity.Photo, error) {
 	query := `
-		SELECT photo_id, route_id, lane_code, latitude, longitude,
+		SELECT photo_id, route_id, lane_code, survey_year, latitude, longitude,
 			sta_value, sta_source, gcs_object_name,
 			file_format, file_size_bytes, original_filename,
 			description, tags,
@@ -634,6 +654,7 @@ func (r *PhotoRepository) FindPendingByIDAndAPIKey(ctx context.Context, id vo.Ph
 		&p.PhotoID,
 		&p.RouteID,
 		&p.LaneCode,
+		&p.SurveyYear,
 		&p.Latitude,
 		&p.Longitude,
 		&p.StaValue,
@@ -681,6 +702,7 @@ func (r *PhotoRepository) scanPhoto(row pgx.Row) (*entity.Photo, error) {
 		&p.PhotoID,
 		&p.RouteID,
 		&p.LaneCode,
+		&p.SurveyYear,
 		&p.Latitude,
 		&p.Longitude,
 		&p.StaValue,
@@ -721,6 +743,7 @@ func (r *PhotoRepository) scanPhotos(rows pgx.Rows) ([]*entity.Photo, error) {
 			&p.PhotoID,
 			&p.RouteID,
 			&p.LaneCode,
+			&p.SurveyYear,
 			&p.Latitude,
 			&p.Longitude,
 			&p.StaValue,

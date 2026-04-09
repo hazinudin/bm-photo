@@ -78,6 +78,9 @@ type BrowseFilter struct {
 	// UploadedOnly filters photos that have been uploaded (upload_status = 'completed').
 	UploadedOnly *bool
 
+	// SurveyYear filters photos by survey year (single year).
+	SurveyYear *int
+
 	// Page is the page number (1-indexed).
 	Page int
 
@@ -107,6 +110,9 @@ type SearchFilter struct {
 
 	// HasEXIFGPS filters photos that have or don't have GPS data.
 	HasEXIFGPS *bool
+
+	// SurveyYears filters photos by multiple survey years (for advanced search).
+	SurveyYears []int
 
 	// Page is the page number (1-indexed).
 	Page int
