@@ -1,9 +1,9 @@
 # Product Requirements Document (PRD)
 # Bina Marga Survey Photo Service
 
-**Version:** 1.6  
-**Date:** April 8, 2026  
-**Status:** In Progress - Added Coordinate Update Support  
+**Version:** 1.7  
+**Date:** April 9, 2026  
+**Status:** In Progress - GCS Object Name Fix + UUID v7 Migration  
 
 ---
 
@@ -41,6 +41,13 @@
 | LRS Client | ❌ Not Started | High | gRPC client for STA calculation |
 | Main Entry Point | ❌ Not Started | High | `cmd/server/main.go` |
 | Configuration | ❌ Not Started | High | YAML config loading |
+
+### Bug Fixes & Known Issues
+
+| Issue | Date | Status | Fix |
+|-------|------|--------|-----|
+| **GCS Object Name Collision (UUID v7 Migration)** | Apr 9, 2026 | ✅ Fixed | `internal/service/upload.go` - Changed `generateGCSObjectName` to use the real photo ID (UUID v7, 36 chars) instead of generating a new random short UUID. This prevented multiple photos from overwriting each other in GCS when using UUID v7 (which has a different byte layout than v4, causing apparent collisions when only first 8 chars were used). Added `SetGCSObjectName()` method to `Photo` entity to update GCS object name after photo ID is generated. |
+| **UUID Version** | Apr 9, 2026 | ✅ Migrated | Photo IDs now use UUID v7 (time-ordered) instead of UUID v4. This maintains sortability by creation time while being globally unique. |
 
 ---
 
@@ -192,10 +199,13 @@ Check concurrent upload limit for API key                │
     └─ Max 10 pending uploads per API key                │
     ↓                                                    │
 Generate identifiers and GCS object name                 │
-    ├─ Create unique photo_id (UUID)                     │
+    ├─ Create unique photo_id (UUID v7)                 │
     ├─ Generate GCS object name:                         │
     │   photos/{year}/{route_id}/{route_id}_{year}_      │
-    │   {lane}_{shortuuid}.{ext}                         │
+    │   {lane}_{photo_id}.{ext}                          │
+    │   Note: Full photo_id (36 chars) is used in GCS    │
+    │   object name (not shortuuid). This ensures       │
+    │   uniqueness especially after UUID v4→v7 migration.│
     ├─ Create upload_token (UUID)                        │
     └─ Create signed URL for that object path (15 min)   │
     ↓                                                    │
@@ -557,10 +567,10 @@ Response:
   /photos/
     /{year}/
       /{route_id}/
-        /{route_id}_{year}_{lane}_{shortuuid}.{ext}           # Original photo
-        /{route_id}_{year}_{lane}_{shortuuid}_small.{ext}     # Small thumbnail (150x150)
-        /{route_id}_{year}_{lane}_{shortuuid}_medium.{ext}    # Medium thumbnail (400x400)
-        /{route_id}_{year}_{lane}_{shortuuid}_large.{ext}     # Large thumbnail (800x800)
+        /{route_id}_{year}_{lane}_{photo_id}.{ext}           # Original photo
+        /{route_id}_{year}_{lane}_{photo_id}_small.{ext}     # Small thumbnail (150x150)
+        /{route_id}_{year}_{lane}_{photo_id}_medium.{ext}    # Medium thumbnail (400x400)
+        /{route_id}_{year}_{lane}_{photo_id}_large.{ext}     # Large thumbnail (800x800)
   ```
   
   Example:
@@ -568,10 +578,10 @@ Response:
   /photos/
     /2026/
       /NR-001/
-        /NR-001_2026_L1_a1b2c3d4.jpg         # Original
-        /NR-001_2026_L1_a1b2c3d4_small.jpg    # Small thumbnail
-        /NR-001_2026_L1_a1b2c3d4_medium.jpg   # Medium thumbnail
-        /NR-001_2026_L1_a1b2c3d4_large.jpg    # Large thumbnail
+        /NR-001_2026_L1_550e8400-e29b-41d4-a716-446655440000.jpg         # Original
+        /NR-001_2026_L1_550e8400-e29b-41d4-a716-446655440000_small.jpg    # Small thumbnail
+        /NR-001_2026_L1_550e8400-e29b-41d4-a716-446655440000_medium.jpg   # Medium thumbnail
+        /NR-001_2026_L1_550e8400-e29b-41d4-a716-446655440000_large.jpg    # Large thumbnail
   ```
 
 #### 3.2.2 Storage Operations

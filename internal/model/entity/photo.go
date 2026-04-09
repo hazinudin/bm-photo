@@ -438,6 +438,19 @@ func (p *Photo) SetSurveyYear(year int) error {
 	return nil
 }
 
+// SetGCSObjectName updates the GCS object name (only if not deleted).
+func (p *Photo) SetGCSObjectName(objectName string) error {
+	if p.IsDeleted() {
+		return ErrPhotoDeleted
+	}
+	if objectName == "" {
+		return errors.New("GCS object name cannot be empty")
+	}
+	p.gcsObjectName = objectName
+	p.updatedAt = time.Now()
+	return nil
+}
+
 // SoftDelete marks the photo as deleted.
 func (p *Photo) SoftDelete(deletedByAPIKey string) error {
 	if p.IsDeleted() {

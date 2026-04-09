@@ -37,15 +37,14 @@ func NewUploadService(
 }
 
 // generateGCSObjectName generates a GCS object name following the naming convention:
-// photos/{year}/{route_id}/{route_id}_{year}_{lane}_{shortuuid}.{ext}
-func generateGCSObjectName(routeID, laneCode, contentType string, year int) string {
-	shortUUID := vo.NewPhotoID().String()[:8]
+// photos/{year}/{route_id}/{route_id}_{year}_{lane}_{photoID}.{ext}
+func generateGCSObjectName(routeID, laneCode, photoID, contentType string, year int) string {
 	// Derive extension from content type
 	ext := "jpg"
 	if contentType == "image/png" {
 		ext = "png"
 	}
-	return fmt.Sprintf("photos/%d/%s/%s_%d_%s_%s.%s", year, routeID, routeID, year, laneCode, shortUUID, ext)
+	return fmt.Sprintf("photos/%d/%s/%s_%d_%s_%s.%s", year, routeID, routeID, year, laneCode, photoID, ext)
 }
 
 // GetSignedURL handles Phase 1 of the two-phase upload workflow.
@@ -98,21 +97,20 @@ func (s *UploadServiceImpl) GetSignedURL(
 		surveyYear = *req.PhotoAttributes.SurveyYear
 	}
 
-	// Generate GCS object name using the naming convention
+	// Extract route ID and lane code
 	// Route ID and lane may be empty initially, will be updated in confirm phase
 	routeID := req.PhotoAttributes.RouteID
 	laneCode := req.PhotoAttributes.LaneCode
 	if laneCode == "" {
 		laneCode = "unknown"
 	}
-	gcsObjectName := generateGCSObjectName(routeID, laneCode, req.FileMetadata.ContentType, surveyYear)
 
-	// Create photo entity with pending status
+	// Create photo entity with pending status (use placeholder GCS object name for now)
 	photoParams := entity.PhotoParams{
 		RouteID:          routeID,
 		LaneCode:         laneCode,
 		SurveyYear:       surveyYear,
-		GCSObjectName:    gcsObjectName,
+		GCSObjectName:    "placeholder", // Will be updated with real ID below
 		FileFormat:       fileFormat,
 		FileSizeBytes:    req.FileMetadata.FileSizeBytes,
 		OriginalFilename: &req.FileMetadata.Filename,
@@ -124,6 +122,15 @@ func (s *UploadServiceImpl) GetSignedURL(
 	if err != nil {
 		s.logger.Error("Failed to create photo entity", err, nil)
 		return nil, NewServiceError("INTERNAL_ERROR", "Failed to create photo record", err)
+	}
+
+	// Generate the correct GCS object name using the real photo ID
+	gcsObjectName := generateGCSObjectName(routeID, laneCode, photo.ID().String(), req.FileMetadata.ContentType, surveyYear)
+	if err := photo.SetGCSObjectName(gcsObjectName); err != nil {
+		s.logger.Error("Failed to set GCS object name", err, map[string]interface{}{
+			"photo_id": photo.ID().String(),
+		})
+		return nil, NewServiceError("INTERNAL_ERROR", "Failed to set GCS object name", err)
 	}
 
 	// Set coordinates if provided
