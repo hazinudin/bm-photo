@@ -87,6 +87,9 @@ func (h *PhotoHandler) BrowsePhotos(w http.ResponseWriter, r *http.Request) {
 	if uploadedOnly := ParseQueryBool(r, "uploaded_only"); uploadedOnly != nil {
 		filter.UploadedOnly = uploadedOnly
 	}
+	if surveyYear := ParseQueryInt(r, "survey_year", 0); surveyYear != 0 {
+		filter.SurveyYear = &surveyYear
+	}
 
 	resp, err := h.photoSvc.Browse(ctx, filter)
 	if err != nil {
