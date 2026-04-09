@@ -117,6 +117,7 @@
                     "photo_attributes": {
                       "route_id": "NR-001",
                       "lane_code": "L1",
+                      "survey_year": 2025,
                       "latitude": -6.2088,
                       "longitude": 106.8456,
                       "description": "Road surface damage at kilometer 5",
@@ -417,7 +418,8 @@
               "example": {
                 "description": "Updated description",
                 "tags": ["damage", "road_surface", "urgent"],
-                "lane_code": "R2"
+                "lane_code": "R2",
+                "survey_year": 2025
               }
             }
           }
@@ -587,6 +589,16 @@
               "maximum": 100,
               "default": 20
             }
+          },
+          {
+            "name": "survey_year",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 2000
+            },
+            "description": "Filter by survey year"
           }
         ],
         "responses": {
@@ -651,6 +663,11 @@
                 "pattern": "^[LR]([1-9]|10)$",
                 "description": "Lane identifier (L1-L10 for left, R1-R10 for right)",
                 "example": "L1"
+              },
+              "survey_year": {
+                "type": "integer",
+                "minimum": 2000,
+                "description": "Survey year (defaults to current year if not provided)"
               },
               "latitude": {
                 "type": "number",
@@ -756,6 +773,10 @@
             "type": "string",
             "example": "NR-001"
           },
+          "survey_year": {
+            "type": "integer",
+            "example": 2025
+          },
           "lane_code": {
             "type": "string",
             "example": "L1"
@@ -833,6 +854,11 @@
             "pattern": "^[LR]([1-9]|10)$",
             "nullable": true,
             "example": "R2"
+          },
+          "survey_year": {
+            "type": "integer",
+            "minimum": 2000,
+            "nullable": true
           }
         }
       },
@@ -859,6 +885,10 @@
           "lane_code": {
             "type": "string",
             "example": "R2"
+          },
+          "survey_year": {
+            "type": "integer",
+            "example": 2025
           },
           "updated_at": {
             "type": "string",
@@ -902,6 +932,10 @@
           "lane_code": {
             "type": "string",
             "example": "L1"
+          },
+          "survey_year": {
+            "type": "integer",
+            "example": 2025
           },
           "sta_value": {
             "type": "number",
