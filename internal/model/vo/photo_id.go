@@ -3,7 +3,7 @@ package vo
 import (
 	"errors"
 
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 )
 
 type PhotoID string
@@ -13,14 +13,15 @@ var (
 )
 
 func NewPhotoID() PhotoID {
-	return PhotoID(uuid.New().String())
+	id, _ := uuid.NewV7()
+	return PhotoID(id.String())
 }
 
 func ParsePhotoID(s string) (PhotoID, error) {
 	if s == "" {
 		return "", ErrInvalidPhotoID
 	}
-	if _, err := uuid.Parse(s); err != nil {
+	if _, err := uuid.FromString(s); err != nil {
 		return "", ErrInvalidPhotoID
 	}
 	return PhotoID(s), nil
@@ -39,7 +40,7 @@ func (id PhotoID) String() string {
 }
 
 func (id PhotoID) IsValid() bool {
-	_, err := uuid.Parse(string(id))
+	_, err := uuid.FromString(string(id))
 	return err == nil
 }
 

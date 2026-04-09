@@ -3,7 +3,7 @@ package vo
 import (
 	"errors"
 
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 )
 
 type UploadToken string
@@ -13,14 +13,15 @@ var (
 )
 
 func NewUploadToken() UploadToken {
-	return UploadToken(uuid.New().String())
+	id, _ := uuid.NewV7()
+	return UploadToken(id.String())
 }
 
 func ParseUploadToken(s string) (UploadToken, error) {
 	if s == "" {
 		return "", ErrInvalidUploadToken
 	}
-	if _, err := uuid.Parse(s); err != nil {
+	if _, err := uuid.FromString(s); err != nil {
 		return "", ErrInvalidUploadToken
 	}
 	return UploadToken(s), nil
@@ -39,6 +40,6 @@ func (t UploadToken) String() string {
 }
 
 func (t UploadToken) IsValid() bool {
-	_, err := uuid.Parse(string(t))
+	_, err := uuid.FromString(string(t))
 	return err == nil
 }
