@@ -17,6 +17,7 @@ type FileMetadata struct {
 type PhotoAttributes struct {
 	RouteID     string   `json:"route_id"`
 	LaneCode    string   `json:"lane_code"`
+	SurveyYear  *int     `json:"survey_year,omitempty"`
 	Latitude    *float64 `json:"latitude,omitempty"`
 	Longitude   *float64 `json:"longitude,omitempty"`
 	STAValue    *float64 `json:"sta_value,omitempty"`
@@ -52,6 +53,12 @@ func (r *GetSignedUploadURLRequest) Validate() error {
 	}
 	if r.PhotoAttributes.LaneCode != "" && !IsValidLaneCode(r.PhotoAttributes.LaneCode) {
 		return model.NewValidationError("photo_attributes.lane_code", "lane_code must be in format L1-L10 or R1-R10")
+	}
+	if r.PhotoAttributes.SurveyYear != nil {
+		currentYear := time.Now().Year()
+		if *r.PhotoAttributes.SurveyYear < 2000 || *r.PhotoAttributes.SurveyYear > currentYear+1 {
+			return model.NewValidationError("photo_attributes.survey_year", "survey_year must be between 2000 and current year")
+		}
 	}
 	if r.PhotoAttributes.Latitude != nil && (*r.PhotoAttributes.Latitude < -90 || *r.PhotoAttributes.Latitude > 90) {
 		return model.NewValidationError("photo_attributes.latitude", "latitude must be between -90 and 90")

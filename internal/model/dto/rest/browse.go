@@ -9,12 +9,13 @@ import (
 
 // BrowsePhotosRequest - Query photos with filters.
 type BrowsePhotosRequest struct {
-	RouteID  string   `query:"route_id"`
-	STAStart *float64 `query:"sta_start"`
-	STAEnd   *float64 `query:"sta_end"`
-	LaneCode *string  `query:"lane_code"`
-	Page     int      `query:"page"`
-	PerPage  int      `query:"per_page"`
+	RouteID    string   `query:"route_id"`
+	STAStart   *float64 `query:"sta_start"`
+	STAEnd     *float64 `query:"sta_end"`
+	LaneCode   *string  `query:"lane_code"`
+	SurveyYear *int     `query:"survey_year"`
+	Page       int      `query:"page"`
+	PerPage    int      `query:"per_page"`
 }
 
 // Validate validates and sets defaults for browse request.
@@ -33,6 +34,9 @@ func (r *BrowsePhotosRequest) Validate() error {
 	}
 	if r.LaneCode != nil && !IsValidLaneCode(*r.LaneCode) {
 		return model.NewValidationError("lane_code", "lane_code must be in format L1-L10 or R1-R10")
+	}
+	if r.SurveyYear != nil && (*r.SurveyYear < 2000 || *r.SurveyYear > time.Now().Year()+1) {
+		return model.NewValidationError("survey_year", "survey_year must be between 2000 and current year + 1")
 	}
 	if r.Page <= 0 {
 		r.Page = model.DefaultPage
@@ -55,6 +59,7 @@ type PhotoSummary struct {
 	RouteID          string     `json:"route_id"`
 	LaneCode         string     `json:"lane_code"`
 	STAValue         *float64   `json:"sta_value,omitempty"`
+	SurveyYear       int        `json:"survey_year"`
 	GCSURL           string     `json:"gcs_url"`
 	UploadedAt       time.Time  `json:"uploaded_at"`
 	OriginalFileName string     `json:"file_name"`
@@ -70,15 +75,16 @@ type Pagination struct {
 
 // SearchPhotosRequest - Advanced search with multiple filters.
 type SearchPhotosRequest struct {
-	RouteIDs   []string   `json:"route_ids"`
-	STARanges  []STARange `json:"sta_ranges"`
-	LaneCodes  []string   `json:"lane_codes"`
-	DateStart  *time.Time `json:"date_start,omitempty"`
-	DateEnd    *time.Time `json:"date_end,omitempty"`
-	Tags       []string   `json:"tags"`
-	HasEXIFGPS *bool      `json:"has_exif_gps,omitempty"`
-	Page       int        `json:"page"`
-	PerPage    int        `json:"per_page"`
+	RouteIDs    []string   `json:"route_ids"`
+	STARanges   []STARange `json:"sta_ranges"`
+	LaneCodes   []string   `json:"lane_codes"`
+	SurveyYears []int      `json:"survey_years"`
+	DateStart   *time.Time `json:"date_start,omitempty"`
+	DateEnd     *time.Time `json:"date_end,omitempty"`
+	Tags        []string   `json:"tags"`
+	HasEXIFGPS  *bool      `json:"has_exif_gps,omitempty"`
+	Page        int        `json:"page"`
+	PerPage     int        `json:"per_page"`
 }
 
 // STARange - Range of STA values.

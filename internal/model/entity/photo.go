@@ -17,6 +17,7 @@ type Photo struct {
 	// Location attributes
 	routeID     string
 	laneCode    string
+	surveyYear  int
 	coordinates *vo.Coordinates
 
 	// Linear Reference System
@@ -55,8 +56,9 @@ type Photo struct {
 
 // PhotoParams contains parameters for creating a new Photo.
 type PhotoParams struct {
-	RouteID  string
-	LaneCode string
+	RouteID    string
+	LaneCode   string
+	SurveyYear int
 
 	GCSObjectName    string
 	FileFormat       vo.FileFormat
@@ -114,10 +116,16 @@ func NewPhoto(params PhotoParams) (*Photo, error) {
 
 	now := time.Now()
 
+	surveyYear := params.SurveyYear
+	if surveyYear == 0 {
+		surveyYear = now.Year()
+	}
+
 	photo := &Photo{
 		id:               vo.NewPhotoID(),
 		routeID:          params.RouteID,
 		laneCode:         params.LaneCode,
+		surveyYear:       surveyYear,
 		gcsObjectName:    params.GCSObjectName,
 		fileFormat:       params.FileFormat,
 		fileSizeBytes:    params.FileSizeBytes,
@@ -155,6 +163,11 @@ func (p *Photo) RouteID() string {
 // LaneCode returns the lane code
 func (p *Photo) LaneCode() string {
 	return p.laneCode
+}
+
+// SurveyYear returns the survey year
+func (p *Photo) SurveyYear() int {
+	return p.surveyYear
 }
 
 // Latitude returns the latitude coordinate (0 if not set)
@@ -410,6 +423,21 @@ func (p *Photo) UpdateLaneCode(code string) error {
 	return nil
 }
 
+// SetSurveyYear updates the survey year (only if not deleted).
+func (p *Photo) SetSurveyYear(year int) error {
+	if p.IsDeleted() {
+		return ErrPhotoDeleted
+	}
+	// Validate year is reasonable (2000 to current year + 1)
+	currentYear := time.Now().Year()
+	if year < 2000 || year > currentYear+1 {
+		return errors.New("survey year must be between 2000 and current year + 1")
+	}
+	p.surveyYear = year
+	p.updatedAt = time.Now()
+	return nil
+}
+
 // SoftDelete marks the photo as deleted.
 func (p *Photo) SoftDelete(deletedByAPIKey string) error {
 	if p.IsDeleted() {
@@ -439,6 +467,7 @@ type PhotoRowParams struct {
 	ID               vo.PhotoID
 	RouteID          string
 	LaneCode         string
+	SurveyYear       int
 	Latitude         *float64
 	Longitude        *float64
 	StaValue         *float64
@@ -475,6 +504,7 @@ func NewPhotoFromRepository(params PhotoRowParams) *Photo {
 		id:               params.ID,
 		routeID:          params.RouteID,
 		laneCode:         params.LaneCode,
+		surveyYear:       params.SurveyYear,
 		coordinates:      coords,
 		staValue:         params.StaValue,
 		staSource:        params.StaSource,

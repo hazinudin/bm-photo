@@ -11,6 +11,7 @@ import (
 type PhotoResponse struct {
 	PhotoID       vo.PhotoID    `json:"photo_id"`
 	RouteID       string        `json:"route_id"`
+	SurveyYear    int           `json:"survey_year"`
 	LaneCode      string        `json:"lane_code"`
 	Latitude      *float64      `json:"latitude,omitempty"`
 	Longitude     *float64      `json:"longitude,omitempty"`
@@ -28,6 +29,7 @@ type PhotoResponse struct {
 type UpdatePhotoRequest struct {
 	Description *string  `json:"description,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
+	SurveyYear  *int     `json:"survey_year,omitempty"`
 	LaneCode    *string  `json:"lane_code,omitempty"`
 	Latitude    *float64 `json:"latitude,omitempty"`
 	Longitude   *float64 `json:"longitude,omitempty"`
@@ -58,6 +60,14 @@ func (r *UpdatePhotoRequest) Validate() error {
 		return model.NewValidationError("sta_value", "sta_value must be greater than or equal to 0")
 	}
 
+	if r.SurveyYear != nil {
+		minYear := 2000
+		maxYear := time.Now().Year() + 1
+		if *r.SurveyYear < minYear || *r.SurveyYear > maxYear {
+			return model.NewValidationError("survey_year", "survey_year must be between 2000 and current year")
+		}
+	}
+
 	return nil
 }
 
@@ -66,6 +76,7 @@ type UpdatePhotoResponse struct {
 	PhotoID     vo.PhotoID    `json:"photo_id"`
 	Description *string       `json:"description,omitempty"`
 	Tags        []string      `json:"tags"`
+	SurveyYear  int           `json:"survey_year"`
 	LaneCode    string        `json:"lane_code"`
 	Latitude    *float64      `json:"latitude,omitempty"`
 	Longitude   *float64      `json:"longitude,omitempty"`
