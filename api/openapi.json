@@ -599,6 +599,16 @@
               "minimum": 2000
             },
             "description": "Filter by survey year"
+          },
+          {
+            "name": "uploaded_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "If true, return only photos that have been uploaded (upload_status = 'completed')"
           }
         ],
         "responses": {
