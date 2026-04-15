@@ -44,10 +44,10 @@ const (
 // Rate limits (requests per minute per API key)
 const (
 	// RateLimitSignedURL is the rate limit for signed URL requests
-	RateLimitSignedURL = 10
+	RateLimitSignedURL = 100
 
 	// RateLimitComplete is the rate limit for complete upload requests
-	RateLimitComplete = 10
+	RateLimitComplete = 100
 
 	// RateLimitBrowse is the rate limit for browse requests
 	RateLimitBrowse = 100
