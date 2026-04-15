@@ -124,3 +124,49 @@ class PhotoDetail(BaseModel):
         ..., description="Timestamp when the photo was uploaded"
     )
     download_url: str = Field(..., description="Signed URL to download the photo")
+
+
+class UpdatePhotoResponse(BaseModel):
+    """Response from the PATCH /api/v1/photos/{photo_id} endpoint.
+
+    Attributes:
+        photo_id: Unique identifier for the photo.
+        description: Updated description of the photo.
+        tags: List of tags associated with the photo.
+        survey_year: Year the survey was conducted.
+        lane_code: Code identifying the lane.
+        latitude: GPS latitude coordinate.
+        longitude: GPS longitude coordinate.
+        sta_value: Station value along the route in meters.
+        sta_source: Source of the STA value (e.g., "user_provided").
+        updated_at: Timestamp when the photo was last updated.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    photo_id: str = Field(..., description="Unique identifier for the photo")
+    description: Optional[str] = Field(None, description="Description of the photo")
+    tags: List[str] = Field(
+        default_factory=list, description="Tags associated with the photo"
+    )
+    survey_year: int = Field(..., description="Year the survey was conducted")
+    lane_code: str = Field(..., description="Code identifying the lane")
+    latitude: Optional[float] = Field(
+        None,
+        ge=-90.0,
+        le=90.0,
+        description="GPS latitude coordinate",
+    )
+    longitude: Optional[float] = Field(
+        None,
+        ge=-180.0,
+        le=180.0,
+        description="GPS longitude coordinate",
+    )
+    sta_value: Optional[float] = Field(
+        None, description="Station value along the route in meters"
+    )
+    sta_source: Optional[str] = Field(None, description="Source of the STA value")
+    updated_at: datetime = Field(
+        ..., description="Timestamp when the photo was last updated"
+    )

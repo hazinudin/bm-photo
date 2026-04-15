@@ -4,7 +4,7 @@ from typing import List, Optional
 
 import requests
 
-from .models import PhotoSummary, PhotoDetail, BrowsePhotosResponse
+from .models import PhotoSummary, PhotoDetail, BrowsePhotosResponse, UpdatePhotoResponse
 from .exceptions import (
     BMPhotoError,
     AuthenticationError,
@@ -200,6 +200,80 @@ class BMPhotoClient:
             self._handle_error(response)
 
         return response.headers.get("Location", "")
+
+    def update_photo(
+        self,
+        photo_id: str,
+        *,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+        sta_value: Optional[float] = None,
+        lane_code: Optional[str] = None,
+        description: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        survey_year: Optional[int] = None,
+    ) -> UpdatePhotoResponse:
+        """Update metadata for a specific photo.
+
+        Sends a PATCH request to /api/v1/photos/{photo_id} with only
+        the provided fields (partial update semantics).
+
+        Args:
+            photo_id: The unique identifier of the photo to update.
+            latitude: GPS latitude coordinate (-90 to 90). Must be provided
+                together with longitude.
+            longitude: GPS longitude coordinate (-180 to 180). Must be provided
+                together with latitude.
+            sta_value: Station value along the route in meters (>= 0).
+                When provided, sta_source is automatically set to "user_provided".
+            lane_code: Lane code to set (e.g., "L1", "R2").
+            description: New description for the photo.
+            tags: New tags list. Sending an empty list clears all tags.
+            survey_year: Survey year to set (2000 to current year + 1).
+
+        Returns:
+            UpdatePhotoResponse with the updated photo metadata.
+
+        Raises:
+            NotFoundError: If no photo exists with the given photo_id.
+            ValidationError: If request parameters are invalid.
+            ForbiddenError: If API key lacks write scope.
+            AuthenticationError: If API key is invalid.
+            RateLimitError: If rate limit is exceeded.
+            ServerError: If the server encounters an internal error.
+        """
+        body: dict = {}
+        if latitude is not None:
+            body["latitude"] = latitude
+        if longitude is not None:
+            body["longitude"] = longitude
+        if sta_value is not None:
+            body["sta_value"] = sta_value
+        if lane_code is not None:
+            body["lane_code"] = lane_code
+        if description is not None:
+            body["description"] = description
+        if tags is not None:
+            body["tags"] = tags
+        if survey_year is not None:
+            body["survey_year"] = survey_year
+
+        url = f"{self._base_url}/api/v1/photos/{photo_id}"
+        response = self._session.patch(url, json=body, timeout=self._timeout)
+
+        if response.status_code == 404:
+            raise NotFoundError(f"Photo not found: {photo_id}")
+
+        if response.status_code == 403:
+            raise ForbiddenError(
+                "API key lacks write scope to update photos",
+                code="INSUFFICIENT_SCOPE",
+            )
+
+        if response.status_code != 200:
+            self._handle_error(response)
+
+        return UpdatePhotoResponse.model_validate(response.json())
 
     def _handle_error(self, response: requests.Response) -> None:
         """Parse and raise appropriate exception for error responses.
