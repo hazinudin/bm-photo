@@ -59,6 +59,38 @@ type PhotoRepository interface {
 	// Returns ErrPhotoNotFound if the photo does not exist or is not pending.
 	// Returns ErrPhotoNotOwned if the photo belongs to a different API key.
 	FindPendingByIDAndAPIKey(ctx context.Context, id vo.PhotoID, apiKeyID string) (*entity.Photo, error)
+
+	// GetByIDs retrieves multiple photos by their IDs in a single query.
+	// Only returns photos that are not soft-deleted.
+	GetByIDs(ctx context.Context, ids []vo.PhotoID) ([]*entity.Photo, error)
+
+	// GetStats returns photo counts grouped by lane_code for a given route.
+	GetStats(ctx context.Context, filter StatsFilter) (*StatsResult, error)
+}
+
+// StatsFilter contains filter options for photo statistics.
+type StatsFilter struct {
+	// RouteID filters photos by route ID.
+	RouteID string
+
+	// SurveyYear filters photos by survey year.
+	SurveyYear *int
+
+	// UploadedOnly filters photos that have been uploaded (upload_status = 'completed').
+	UploadedOnly *bool
+}
+
+// LaneStat holds photo count for a single lane.
+type LaneStat struct {
+	LaneCode string
+	Count    int64
+}
+
+// StatsResult contains the result of a stats query.
+type StatsResult struct {
+	RouteID    string
+	TotalCount int64
+	LaneStats  []LaneStat
 }
 
 // BrowseFilter contains filter options for browsing photos.
@@ -80,6 +112,10 @@ type BrowseFilter struct {
 
 	// SurveyYear filters photos by survey year (single year).
 	SurveyYear *int
+
+	// Filename filters photos by original filename (case-insensitive).
+	// This is scoped to the route_id to ensure efficient index usage.
+	Filename *string
 
 	// Page is the page number (1-indexed).
 	Page int
@@ -237,7 +273,7 @@ type APIKey struct {
 	// KeyHash is the SHA-256 hash of the actual API key.
 	KeyHash string
 
-	// Scopes defines the permissions granted by this API key (read, write, admin).
+	// Scopes defines the permissions granted by this API key (read, write, delete, admin).
 	Scopes []string
 
 	// Description is a human-readable description of the API key.

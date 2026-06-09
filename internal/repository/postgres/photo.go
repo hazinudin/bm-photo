@@ -390,6 +390,12 @@ func (r *PhotoRepository) Browse(ctx context.Context, filter repository.BrowseFi
 		argIndex++
 	}
 
+	if filter.Filename != nil {
+		whereClause += fmt.Sprintf(" AND LOWER(original_filename) = LOWER($%d)", argIndex)
+		args = append(args, *filter.Filename)
+		argIndex++
+	}
+
 	if filter.UploadedOnly != nil && *filter.UploadedOnly {
 		whereClause += fmt.Sprintf(" AND upload_status = $%d", argIndex)
 		args = append(args, vo.UploadStatusCompleted.String())
@@ -565,6 +571,68 @@ func (r *PhotoRepository) Search(ctx context.Context, filter repository.SearchFi
 	}, nil
 }
 
+func (r *PhotoRepository) GetStats(ctx context.Context, filter repository.StatsFilter) (*repository.StatsResult, error) {
+	whereClause := "WHERE deleted_at IS NULL"
+	args := []interface{}{}
+	argIndex := 1
+
+	if filter.RouteID != "" {
+		whereClause += fmt.Sprintf(" AND route_id = $%d", argIndex)
+		args = append(args, filter.RouteID)
+		argIndex++
+	}
+
+	if filter.SurveyYear != nil {
+		whereClause += fmt.Sprintf(" AND survey_year = $%d", argIndex)
+		args = append(args, *filter.SurveyYear)
+		argIndex++
+	}
+
+	if filter.UploadedOnly != nil && *filter.UploadedOnly {
+		whereClause += fmt.Sprintf(" AND upload_status = $%d", argIndex)
+		args = append(args, vo.UploadStatusCompleted.String())
+		argIndex++
+	}
+
+	var totalCount int64
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM photos %s", whereClause)
+	if err := r.db.Pool().QueryRow(ctx, countQuery, args...).Scan(&totalCount); err != nil {
+		return nil, fmt.Errorf("failed to count photos for stats: %w", err)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT lane_code, COUNT(*) as count
+		FROM photos
+		%s
+		GROUP BY lane_code
+		ORDER BY lane_code`, whereClause)
+
+	rows, err := r.db.Pool().Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query photo stats: %w", err)
+	}
+	defer rows.Close()
+
+	var laneStats []repository.LaneStat
+	for rows.Next() {
+		var stat repository.LaneStat
+		if err := rows.Scan(&stat.LaneCode, &stat.Count); err != nil {
+			return nil, fmt.Errorf("failed to scan lane stat: %w", err)
+		}
+		laneStats = append(laneStats, stat)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating lane stat rows: %w", err)
+	}
+
+	return &repository.StatsResult{
+		RouteID:    filter.RouteID,
+		TotalCount: totalCount,
+		LaneStats:  laneStats,
+	}, nil
+}
+
 func (r *PhotoRepository) Exists(ctx context.Context, id vo.PhotoID) (bool, error) {
 	query := `SELECT EXISTS(SELECT 1 FROM photos WHERE photo_id = $1 AND deleted_at IS NULL)`
 
@@ -694,6 +762,78 @@ func (r *PhotoRepository) FindPendingByIDAndAPIKey(ctx context.Context, id vo.Ph
 	}
 
 	return photo, nil
+}
+
+func (r *PhotoRepository) GetByIDs(ctx context.Context, ids []vo.PhotoID) ([]*entity.Photo, error) {
+	if len(ids) == 0 {
+		return []*entity.Photo{}, nil
+	}
+
+	idStrs := make([]string, len(ids))
+	for i, id := range ids {
+		idStrs[i] = id.String()
+	}
+
+	query := `
+		SELECT photo_id, route_id, lane_code, survey_year, latitude, longitude,
+			sta_value, sta_source, gcs_object_name,
+			file_format, file_size_bytes, original_filename,
+			description, tags,
+			upload_token, upload_status, retry_count, uploaded_by, uploaded_at,
+			created_at, updated_at,
+			deleted_at, deleted_by
+		FROM photos
+		WHERE photo_id = ANY($1) AND deleted_at IS NULL`
+
+	rows, err := r.db.Pool().Query(ctx, query, idStrs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query photos by IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var photos []*entity.Photo
+	for rows.Next() {
+		var p photoRow
+		if err := rows.Scan(
+			&p.PhotoID,
+			&p.RouteID,
+			&p.LaneCode,
+			&p.SurveyYear,
+			&p.Latitude,
+			&p.Longitude,
+			&p.StaValue,
+			&p.StaSource,
+			&p.GCSObjectName,
+			&p.FileFormat,
+			&p.FileSizeBytes,
+			&p.OriginalFilename,
+			&p.Description,
+			&p.Tags,
+			&p.UploadToken,
+			&p.UploadStatus,
+			&p.RetryCount,
+			&p.UploadedBy,
+			&p.UploadedAt,
+			&p.CreatedAt,
+			&p.UpdatedAt,
+			&p.DeletedAt,
+			&p.DeletedBy,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan photo: %w", err)
+		}
+
+		photo, err := p.toEntity()
+		if err != nil {
+			return nil, err
+		}
+		photos = append(photos, photo)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating photo rows: %w", err)
+	}
+
+	return photos, nil
 }
 
 func (r *PhotoRepository) scanPhoto(row pgx.Row) (*entity.Photo, error) {
