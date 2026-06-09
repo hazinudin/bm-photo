@@ -90,6 +90,9 @@ func (h *PhotoHandler) BrowsePhotos(w http.ResponseWriter, r *http.Request) {
 	if surveyYear := ParseQueryInt(r, "survey_year", 0); surveyYear != 0 {
 		filter.SurveyYear = &surveyYear
 	}
+	if fileName := ParseQueryString(r, "file_name"); fileName != nil {
+		filter.Filename = fileName
+	}
 
 	resp, err := h.photoSvc.Browse(ctx, filter)
 	if err != nil {
@@ -97,6 +100,38 @@ func (h *PhotoHandler) BrowsePhotos(w http.ResponseWriter, r *http.Request) {
 			h.writeErrorWithDetails(w, http.StatusBadRequest, ve.Message, "VALIDATION_ERROR", ve.Field)
 			return
 		}
+		if se, ok := err.(*service.ServiceError); ok {
+			h.handleServiceError(w, se)
+			return
+		}
+		h.handleServiceError(w, err)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, resp)
+}
+
+// GetPhotoStats handles GET /api/v1/photos/stats
+func (h *PhotoHandler) GetPhotoStats(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	filter := repository.StatsFilter{}
+
+	if routeID := ParseQueryString(r, "route_id"); routeID != nil {
+		filter.RouteID = *routeID
+	} else {
+		h.writeError(w, http.StatusBadRequest, "route_id is required", "VALIDATION_ERROR")
+		return
+	}
+	if surveyYear := ParseQueryInt(r, "survey_year", 0); surveyYear != 0 {
+		filter.SurveyYear = &surveyYear
+	}
+	if uploadedOnly := ParseQueryBool(r, "uploaded_only"); uploadedOnly != nil {
+		filter.UploadedOnly = uploadedOnly
+	}
+
+	resp, err := h.photoSvc.GetStats(ctx, filter)
+	if err != nil {
 		if se, ok := err.(*service.ServiceError); ok {
 			h.handleServiceError(w, se)
 			return
@@ -133,6 +168,33 @@ func (h *PhotoHandler) UpdatePhoto(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.photoSvc.Update(ctx, photoID, &req)
 	if err != nil {
 		h.handlePhotoError(w, err)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, resp)
+}
+
+// BatchUpdatePhotos handles PATCH /api/v1/photos/batch
+func (h *PhotoHandler) BatchUpdatePhotos(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req rest.BatchUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid request body", "INVALID_REQUEST")
+		return
+	}
+
+	resp, err := h.photoSvc.BatchUpdate(ctx, &req)
+	if err != nil {
+		if ve, ok := err.(*model.ValidationError); ok {
+			h.writeErrorWithDetails(w, http.StatusBadRequest, ve.Message, "VALIDATION_ERROR", ve.Field)
+			return
+		}
+		if se, ok := err.(*service.ServiceError); ok {
+			h.handleServiceError(w, se)
+			return
+		}
+		h.handleServiceError(w, err)
 		return
 	}
 

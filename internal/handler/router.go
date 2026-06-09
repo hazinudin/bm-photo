@@ -6,12 +6,13 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/bina-marga/survey-photo/internal/model"
 	"github.com/bina-marga/survey-photo/internal/service"
 )
 
-// Rate limit configuration: 100 requests per minute per API key
+// Rate limit configuration: uses model constants
 const (
-	rateLimitPerMinute = 100
+	rateLimitPerMinute = model.RateLimitTotal
 	rateLimitWindow    = time.Minute
 )
 
@@ -61,6 +62,10 @@ func NewRouter(
 	))
 
 	// Photo read endpoints (read scope required)
+	mux.Handle("GET /api/v1/photos/stats", withMiddleware(
+		http.HandlerFunc(photoHandler.GetPhotoStats),
+		mw.Logging, mw.CORS, rateLimiter.Middleware, mw.APIKeyAuth, mw.RequireScope("read"),
+	))
 	mux.Handle("GET /api/v1/photos/{photo_id}", withMiddleware(
 		http.HandlerFunc(photoHandler.GetPhoto),
 		mw.Logging, mw.CORS, rateLimiter.Middleware, mw.APIKeyAuth, mw.RequireScope("read"),
@@ -75,15 +80,19 @@ func NewRouter(
 	))
 
 	// Photo write endpoints (write scope required)
+	mux.Handle("PATCH /api/v1/photos/batch", withMiddleware(
+		http.HandlerFunc(photoHandler.BatchUpdatePhotos),
+		mw.Logging, mw.CORS, rateLimiter.Middleware, mw.APIKeyAuth, mw.RequireScope("write"),
+	))
 	mux.Handle("PATCH /api/v1/photos/{photo_id}", withMiddleware(
 		http.HandlerFunc(photoHandler.UpdatePhoto),
 		mw.Logging, mw.CORS, rateLimiter.Middleware, mw.APIKeyAuth, mw.RequireScope("write"),
 	))
 
-	// Photo admin endpoints (admin scope required)
+	// Photo delete endpoints (delete scope required)
 	mux.Handle("DELETE /api/v1/photos/{photo_id}", withMiddleware(
 		http.HandlerFunc(photoHandler.DeletePhoto),
-		mw.Logging, mw.CORS, rateLimiter.Middleware, mw.APIKeyAuth, mw.RequireScope("admin"),
+		mw.Logging, mw.CORS, rateLimiter.Middleware, mw.APIKeyAuth, mw.RequireScope("delete"),
 	))
 
 	// Admin API key management endpoints (admin scope required)
