@@ -896,3 +896,264 @@ class TestHandleError:
 
             # Should still have the message
             assert "Error without code field" in str(exc_info.value)
+
+
+# =============================================================================
+# Test BMPhotoClient.batch_update_photos
+# =============================================================================
+
+
+class TestBatchUpdatePhotos:
+    """Tests for BMPhotoClient.batch_update_photos method."""
+
+    def test_empty_updates_returns_empty_response(self, client):
+        """Test that empty updates list returns empty response without HTTP call."""
+        from bm_photo_client.models import BatchUpdateItem
+
+        result = client.batch_update_photos([])
+
+        assert result.total == 0
+        assert result.succeeded == 0
+        assert result.failed == 0
+        assert result.results == []
+
+    def test_single_chunk_success(self, client):
+        """Test batch update with items that fit in a single chunk."""
+        from bm_photo_client.models import BatchUpdateItem
+
+        updates = [
+            BatchUpdateItem(photo_id="photo-001", lane_code="L2"),
+            BatchUpdateItem(photo_id="photo-002", sta_value=150.5),
+        ]
+
+        response_json = {
+            "total": 2,
+            "succeeded": 2,
+            "failed": 0,
+            "results": [
+                {
+                    "photo_id": "photo-001",
+                    "status": "success",
+                    "photo": {
+                        "photo_id": "photo-001",
+                        "description": None,
+                        "tags": [],
+                        "survey_year": 2024,
+                        "lane_code": "L2",
+                        "updated_at": "2024-01-15T11:00:00Z",
+                    },
+                },
+                {
+                    "photo_id": "photo-002",
+                    "status": "success",
+                    "photo": {
+                        "photo_id": "photo-002",
+                        "description": None,
+                        "tags": [],
+                        "survey_year": 2024,
+                        "lane_code": "L1",
+                        "sta_value": 150.5,
+                        "sta_source": "user_provided",
+                        "updated_at": "2024-01-15T11:00:00Z",
+                    },
+                },
+            ],
+        }
+
+        with requests_mock.Mocker() as m:
+            m.patch(
+                f"{client._base_url}/api/v1/photos/batch",
+                json=response_json,
+                status_code=200,
+            )
+
+            result = client.batch_update_photos(updates)
+
+        assert result.total == 2
+        assert result.succeeded == 2
+        assert result.failed == 0
+        assert len(result.results) == 2
+        assert result.results[0].status == "success"
+        assert result.results[1].status == "success"
+
+    def test_partial_failure(self, client):
+        """Test batch update with some items failing."""
+        from bm_photo_client.models import BatchUpdateItem
+
+        updates = [
+            BatchUpdateItem(photo_id="photo-001", lane_code="L2"),
+            BatchUpdateItem(photo_id="nonexistent", sta_value=150.5),
+        ]
+
+        response_json = {
+            "total": 2,
+            "succeeded": 1,
+            "failed": 1,
+            "results": [
+                {
+                    "photo_id": "photo-001",
+                    "status": "success",
+                    "photo": {
+                        "photo_id": "photo-001",
+                        "description": None,
+                        "tags": [],
+                        "survey_year": 2024,
+                        "lane_code": "L2",
+                        "updated_at": "2024-01-15T11:00:00Z",
+                    },
+                },
+                {
+                    "photo_id": "nonexistent",
+                    "status": "error",
+                    "error": "photo not found or has been deleted",
+                    "error_code": "PHOTO_NOT_FOUND",
+                },
+            ],
+        }
+
+        with requests_mock.Mocker() as m:
+            m.patch(
+                f"{client._base_url}/api/v1/photos/batch",
+                json=response_json,
+                status_code=200,
+            )
+
+            result = client.batch_update_photos(updates)
+
+        assert result.total == 2
+        assert result.succeeded == 1
+        assert result.failed == 1
+        assert result.results[0].status == "success"
+        assert result.results[1].status == "error"
+        assert result.results[1].error_code == "PHOTO_NOT_FOUND"
+
+    def test_auto_chunking(self, client):
+        """Test that updates exceeding chunk_size are split into multiple requests."""
+        from bm_photo_client.models import BatchUpdateItem
+
+        updates = [
+            BatchUpdateItem(photo_id=f"photo-{i:03d}", lane_code="L1")
+            for i in range(750)
+        ]
+
+        chunk1_response = {
+            "total": 500,
+            "succeeded": 500,
+            "failed": 0,
+            "results": [
+                {
+                    "photo_id": f"photo-{i:03d}",
+                    "status": "success",
+                    "photo": {
+                        "photo_id": f"photo-{i:03d}",
+                        "description": None,
+                        "tags": [],
+                        "survey_year": 2024,
+                        "lane_code": "L1",
+                        "updated_at": "2024-01-15T11:00:00Z",
+                    },
+                }
+                for i in range(500)
+            ],
+        }
+
+        chunk2_response = {
+            "total": 250,
+            "succeeded": 250,
+            "failed": 0,
+            "results": [
+                {
+                    "photo_id": f"photo-{i:03d}",
+                    "status": "success",
+                    "photo": {
+                        "photo_id": f"photo-{i:03d}",
+                        "description": None,
+                        "tags": [],
+                        "survey_year": 2024,
+                        "lane_code": "L1",
+                        "updated_at": "2024-01-15T11:00:00Z",
+                    },
+                }
+                for i in range(500, 750)
+            ],
+        }
+
+        with requests_mock.Mocker() as m:
+            m.patch(
+                f"{client._base_url}/api/v1/photos/batch",
+                [
+                    {"json": chunk1_response, "status_code": 200},
+                    {"json": chunk2_response, "status_code": 200},
+                ],
+            )
+
+            result = client.batch_update_photos(updates, chunk_size=500)
+
+        assert result.total == 750
+        assert result.succeeded == 750
+        assert result.failed == 0
+        assert len(result.results) == 750
+        assert m.call_count == 2
+
+    def test_on_progress_callback(self, client):
+        """Test that on_progress callback is called after each chunk."""
+        from bm_photo_client.models import BatchUpdateItem
+
+        updates = [
+            BatchUpdateItem(photo_id=f"photo-{i:03d}", lane_code="L1")
+            for i in range(3)
+        ]
+
+        response_json = {
+            "total": 3,
+            "succeeded": 3,
+            "failed": 0,
+            "results": [
+                {
+                    "photo_id": f"photo-{i:03d}",
+                    "status": "success",
+                    "photo": {
+                        "photo_id": f"photo-{i:03d}",
+                        "description": None,
+                        "tags": [],
+                        "survey_year": 2024,
+                        "lane_code": "L1",
+                        "updated_at": "2024-01-15T11:00:00Z",
+                    },
+                }
+                for i in range(3)
+            ],
+        }
+
+        progress_calls = []
+
+        def on_progress(resp):
+            progress_calls.append(resp)
+
+        with requests_mock.Mocker() as m:
+            m.patch(
+                f"{client._base_url}/api/v1/photos/batch",
+                json=response_json,
+                status_code=200,
+            )
+
+            client.batch_update_photos(updates, on_progress=on_progress)
+
+        assert len(progress_calls) == 1
+        assert progress_calls[0].total == 3
+
+    def test_403_raises_forbidden_error(self, client):
+        """Test that 403 response raises ForbiddenError."""
+        from bm_photo_client.models import BatchUpdateItem
+
+        updates = [BatchUpdateItem(photo_id="photo-001", lane_code="L2")]
+
+        with requests_mock.Mocker() as m:
+            m.patch(
+                f"{client._base_url}/api/v1/photos/batch",
+                json={"error": "insufficient scope", "code": "INSUFFICIENT_SCOPE"},
+                status_code=403,
+            )
+
+            with pytest.raises(ForbiddenError):
+                client.batch_update_photos(updates)

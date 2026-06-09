@@ -1,7 +1,7 @@
 """Pydantic v2 models for Bina Marga Photo Service API responses."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -169,4 +169,72 @@ class UpdatePhotoResponse(BaseModel):
     sta_source: Optional[str] = Field(None, description="Source of the STA value")
     updated_at: datetime = Field(
         ..., description="Timestamp when the photo was last updated"
+    )
+
+
+class BatchUpdateItem(BaseModel):
+    """Single item in a batch update request.
+
+    Attributes:
+        photo_id: Unique identifier for the photo to update.
+        description: New description for the photo.
+        tags: New tags list for the photo.
+        survey_year: New survey year.
+        lane_code: New lane code (e.g., "L1", "R2").
+        latitude: New GPS latitude coordinate.
+        longitude: New GPS longitude coordinate.
+        sta_value: New station value along the route.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    photo_id: str = Field(..., description="Unique identifier for the photo to update")
+    description: Optional[str] = Field(None, description="New description for the photo")
+    tags: Optional[List[str]] = Field(None, description="New tags list")
+    survey_year: Optional[int] = Field(None, description="New survey year")
+    lane_code: Optional[str] = Field(None, description="New lane code")
+    latitude: Optional[float] = Field(None, description="New latitude coordinate")
+    longitude: Optional[float] = Field(None, description="New longitude coordinate")
+    sta_value: Optional[float] = Field(None, description="New station value")
+
+
+class BatchUpdateItemResult(BaseModel):
+    """Result for a single item in a batch update response.
+
+    Attributes:
+        photo_id: Unique identifier for the photo.
+        status: "success" or "error".
+        error: Error message if status is "error".
+        error_code: Machine-readable error code if status is "error".
+        photo: Updated photo data if status is "success".
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    photo_id: str = Field(..., description="Unique identifier for the photo")
+    status: Literal["success", "error"] = Field(..., description="Result status")
+    error: Optional[str] = Field(None, description="Error message if failed")
+    error_code: Optional[str] = Field(None, description="Error code if failed")
+    photo: Optional[UpdatePhotoResponse] = Field(
+        None, description="Updated photo data if succeeded"
+    )
+
+
+class BatchUpdateResponse(BaseModel):
+    """Response from the PATCH /api/v1/photos/batch endpoint.
+
+    Attributes:
+        total: Total number of items in the batch.
+        succeeded: Number of items that were successfully updated.
+        failed: Number of items that failed to update.
+        results: Per-item results.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    total: int = Field(..., description="Total number of items in the batch")
+    succeeded: int = Field(..., description="Number of successful updates")
+    failed: int = Field(..., description="Number of failed updates")
+    results: List[BatchUpdateItemResult] = Field(
+        ..., description="Per-item results"
     )

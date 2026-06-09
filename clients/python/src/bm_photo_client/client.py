@@ -1,10 +1,19 @@
 """Bina Marga Survey Photo REST API client."""
 
-from typing import List, Optional
+import time
+from typing import Callable, List, Optional
 
 import requests
 
-from .models import PhotoSummary, PhotoDetail, BrowsePhotosResponse, UpdatePhotoResponse
+from .models import (
+    BatchUpdateItem,
+    BatchUpdateItemResult,
+    BatchUpdateResponse,
+    BrowsePhotosResponse,
+    PhotoDetail,
+    PhotoSummary,
+    UpdatePhotoResponse,
+)
 from .exceptions import (
     BMPhotoError,
     AuthenticationError,
@@ -27,6 +36,8 @@ class BMPhotoClient:
         base_url: The base URL of the API server (e.g., "https://api.example.com").
         api_key: The API key for authentication.
         timeout: Request timeout in seconds (default: 30.0).
+        cooldown_threshold: Number of requests before triggering a cooldown (default: 2500).
+        cooldown_duration: Cooldown duration in seconds (default: 60).
 
     Example:
         >>> client = BMPhotoClient(
@@ -39,17 +50,31 @@ class BMPhotoClient:
         >>> print(f"First photo: {photo_detail.file_name}")
     """
 
-    def __init__(self, base_url: str, api_key: str, *, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        *,
+        timeout: float = 30.0,
+        cooldown_threshold: int = 2500,
+        cooldown_duration: float = 60.0,
+    ) -> None:
         """Initialize the BMPhotoClient.
 
         Args:
             base_url: The base URL of the API server.
             api_key: The API key for authentication.
             timeout: Request timeout in seconds (default: 30.0).
+            cooldown_threshold: Number of requests before triggering a cooldown (default: 2500).
+            cooldown_duration: Cooldown duration in seconds (default: 60).
         """
         self._session = requests.Session()
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
+        self._cooldown_threshold = cooldown_threshold
+        self._cooldown_duration = cooldown_duration
+        self._request_count = 0
+        self._last_cooldown_time = 0.0
 
         self._session.headers.update(
             {
@@ -201,6 +226,19 @@ class BMPhotoClient:
 
         return response.headers.get("Location", "")
 
+    def _check_cooldown(self) -> None:
+        """Apply cooldown if request count exceeds threshold.
+
+        Increments the request counter and sleeps for the configured
+        cooldown duration when the threshold is reached.
+        """
+        self._request_count += 1
+
+        if self._request_count >= self._cooldown_threshold:
+            self._request_count = 0
+            self._last_cooldown_time = time.time()
+            time.sleep(self._cooldown_duration)
+
     def update_photo(
         self,
         photo_id: str,
@@ -242,6 +280,8 @@ class BMPhotoClient:
             RateLimitError: If rate limit is exceeded.
             ServerError: If the server encounters an internal error.
         """
+        self._check_cooldown()
+
         body: dict = {}
         if latitude is not None:
             body["latitude"] = latitude
@@ -274,6 +314,75 @@ class BMPhotoClient:
             self._handle_error(response)
 
         return UpdatePhotoResponse.model_validate(response.json())
+
+    def batch_update_photos(
+        self,
+        updates: List[BatchUpdateItem],
+        *,
+        chunk_size: int = 500,
+        on_progress: Optional[Callable[[BatchUpdateResponse], None]] = None,
+    ) -> BatchUpdateResponse:
+        """Update metadata for multiple photos in batch.
+
+        Automatically chunks the updates into batches of chunk_size items,
+        sends each batch as a separate HTTP request, and merges the results.
+
+        Args:
+            updates: List of BatchUpdateItem objects to update.
+            chunk_size: Maximum items per HTTP request (default: 500).
+            on_progress: Optional callback called after each chunk completes.
+                Receives the BatchUpdateResponse for that chunk.
+
+        Returns:
+            BatchUpdateResponse with merged results from all chunks.
+
+        Raises:
+            ValidationError: If any chunk request fails validation.
+            AuthenticationError: If API key is invalid.
+            RateLimitError: If rate limit is exceeded.
+            ServerError: If the server encounters an internal error.
+        """
+        if not updates:
+            return BatchUpdateResponse(total=0, succeeded=0, failed=0, results=[])
+
+        all_results: List[BatchUpdateItemResult] = []
+        total_succeeded = 0
+        total_failed = 0
+
+        for i in range(0, len(updates), chunk_size):
+            chunk = updates[i : i + chunk_size]
+
+            self._check_cooldown()
+
+            body = {"updates": [item.model_dump(exclude_none=True) for item in chunk]}
+
+            url = f"{self._base_url}/api/v1/photos/batch"
+            response = self._session.patch(url, json=body, timeout=self._timeout)
+
+            if response.status_code == 403:
+                raise ForbiddenError(
+                    "API key lacks write scope to update photos",
+                    code="INSUFFICIENT_SCOPE",
+                )
+
+            if response.status_code != 200:
+                self._handle_error(response)
+
+            chunk_response = BatchUpdateResponse.model_validate(response.json())
+
+            all_results.extend(chunk_response.results)
+            total_succeeded += chunk_response.succeeded
+            total_failed += chunk_response.failed
+
+            if on_progress is not None:
+                on_progress(chunk_response)
+
+        return BatchUpdateResponse(
+            total=len(updates),
+            succeeded=total_succeeded,
+            failed=total_failed,
+            results=all_results,
+        )
 
     def _handle_error(self, response: requests.Response) -> None:
         """Parse and raise appropriate exception for error responses.

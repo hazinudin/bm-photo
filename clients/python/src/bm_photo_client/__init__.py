@@ -14,7 +14,15 @@ Example usage:
 __version__ = "0.1.0"
 
 from .client import BMPhotoClient
-from .models import PhotoSummary, PhotoDetail, BrowsePhotosResponse, UpdatePhotoResponse
+from .models import (
+    BatchUpdateItem,
+    BatchUpdateItemResult,
+    BatchUpdateResponse,
+    BrowsePhotosResponse,
+    PhotoDetail,
+    PhotoSummary,
+    UpdatePhotoResponse,
+)
 from .exceptions import (
     BMPhotoError,
     AuthenticationError,
@@ -31,9 +39,12 @@ __all__ = [
     # Client
     "BMPhotoClient",
     # Models
-    "PhotoSummary",
-    "PhotoDetail",
+    "BatchUpdateItem",
+    "BatchUpdateItemResult",
+    "BatchUpdateResponse",
     "BrowsePhotosResponse",
+    "PhotoDetail",
+    "PhotoSummary",
     "UpdatePhotoResponse",
     # Exceptions
     "BMPhotoError",
