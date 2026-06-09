@@ -38,8 +38,14 @@ type PhotoService interface {
 	// Search performs advanced search with multiple filters
 	Search(ctx context.Context, filter repository.SearchFilter) (*rest.SearchPhotosResponse, error)
 
+	// GetStats returns photo count statistics grouped by lane
+	GetStats(ctx context.Context, filter repository.StatsFilter) (*rest.PhotoStatsResponse, error)
+
 	// Update modifies photo metadata (description, tags, lane)
 	Update(ctx context.Context, id vo.PhotoID, req *rest.UpdatePhotoRequest) (*rest.UpdatePhotoResponse, error)
+
+	// BatchUpdate modifies metadata for multiple photos in a single operation
+	BatchUpdate(ctx context.Context, req *rest.BatchUpdateRequest) (*rest.BatchUpdateResponse, error)
 
 	// Delete soft-deletes or hard-deletes a photo
 	Delete(ctx context.Context, id vo.PhotoID, hard bool, apiKeyID string) (*rest.DeletePhotoResponse, error)

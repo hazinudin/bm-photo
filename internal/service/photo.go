@@ -130,6 +130,31 @@ func (s *PhotoServiceImpl) Browse(ctx context.Context, filter repository.BrowseF
 	}, nil
 }
 
+// GetStats returns photo count statistics grouped by lane
+func (s *PhotoServiceImpl) GetStats(ctx context.Context, filter repository.StatsFilter) (*rest.PhotoStatsResponse, error) {
+	result, err := s.photoRepo.GetStats(ctx, filter)
+	if err != nil {
+		s.logger.Error("Failed to get photo stats", err, map[string]interface{}{
+			"route_id": filter.RouteID,
+		})
+		return nil, NewServiceError("INTERNAL_ERROR", "Failed to get photo stats", err)
+	}
+
+	laneStats := make([]rest.LaneStats, 0, len(result.LaneStats))
+	for _, ls := range result.LaneStats {
+		laneStats = append(laneStats, rest.LaneStats{
+			LaneCode: ls.LaneCode,
+			Count:    ls.Count,
+		})
+	}
+
+	return &rest.PhotoStatsResponse{
+		RouteID:    result.RouteID,
+		TotalCount: result.TotalCount,
+		LaneStats:  laneStats,
+	}, nil
+}
+
 // Search performs advanced search with multiple filters
 func (s *PhotoServiceImpl) Search(ctx context.Context, filter repository.SearchFilter) (*rest.SearchPhotosResponse, error) {
 	// Validate and set defaults
@@ -280,6 +305,186 @@ func (s *PhotoServiceImpl) Update(
 	}, nil
 }
 
+// BatchUpdate modifies metadata for multiple photos in a single operation
+func (s *PhotoServiceImpl) BatchUpdate(
+	ctx context.Context,
+	req *rest.BatchUpdateRequest,
+) (*rest.BatchUpdateResponse, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
+	photoIDs := make([]vo.PhotoID, 0, len(req.Updates))
+	for _, item := range req.Updates {
+		id, err := vo.ParsePhotoID(item.PhotoID)
+		if err != nil {
+			return nil, model.NewValidationError("photo_id", "invalid photo_id format: "+item.PhotoID)
+		}
+		photoIDs = append(photoIDs, id)
+	}
+
+	photos, err := s.photoRepo.GetByIDs(ctx, photoIDs)
+	if err != nil {
+		s.logger.Error("Failed to batch fetch photos", err, map[string]interface{}{
+			"count": len(photoIDs),
+		})
+		return nil, NewServiceError("INTERNAL_ERROR", "Failed to fetch photos", err)
+	}
+
+	photoMap := make(map[string]*entity.Photo, len(photos))
+	for _, photo := range photos {
+		photoMap[photo.ID().String()] = photo
+	}
+
+	response := &rest.BatchUpdateResponse{
+		Total:   len(req.Updates),
+		Results: make([]rest.BatchUpdateItemResult, 0, len(req.Updates)),
+	}
+
+	for _, item := range req.Updates {
+		result := rest.BatchUpdateItemResult{
+			PhotoID: item.PhotoID,
+		}
+
+		photo, exists := photoMap[item.PhotoID]
+		if !exists {
+			result.Status = "error"
+			result.Error = "photo not found or has been deleted"
+			result.ErrorCode = "PHOTO_NOT_FOUND"
+			response.Failed++
+			response.Results = append(response.Results, result)
+			continue
+		}
+
+		updateReq := &rest.UpdatePhotoRequest{
+			Description: item.Description,
+			Tags:        item.Tags,
+			SurveyYear:  item.SurveyYear,
+			LaneCode:    item.LaneCode,
+			Latitude:    item.Latitude,
+			Longitude:   item.Longitude,
+			STAValue:    item.STAValue,
+		}
+
+		if err := updateReq.Validate(); err != nil {
+			result.Status = "error"
+			result.Error = err.Error()
+			result.ErrorCode = "VALIDATION_ERROR"
+			response.Failed++
+			response.Results = append(response.Results, result)
+			continue
+		}
+
+		if updateReq.Description != nil {
+			if err := photo.UpdateDescription(*updateReq.Description); err != nil {
+				result.Status = "error"
+				result.Error = err.Error()
+				result.ErrorCode = "VALIDATION_ERROR"
+				response.Failed++
+				response.Results = append(response.Results, result)
+				continue
+			}
+		}
+
+		if updateReq.Tags != nil {
+			if err := photo.UpdateTags(updateReq.Tags); err != nil {
+				result.Status = "error"
+				result.Error = err.Error()
+				result.ErrorCode = "VALIDATION_ERROR"
+				response.Failed++
+				response.Results = append(response.Results, result)
+				continue
+			}
+		}
+
+		if updateReq.LaneCode != nil {
+			if err := photo.UpdateLaneCode(*updateReq.LaneCode); err != nil {
+				result.Status = "error"
+				result.Error = err.Error()
+				result.ErrorCode = "VALIDATION_ERROR"
+				response.Failed++
+				response.Results = append(response.Results, result)
+				continue
+			}
+		}
+
+		if updateReq.Latitude != nil && updateReq.Longitude != nil {
+			if err := photo.SetCoordinates(*updateReq.Latitude, *updateReq.Longitude); err != nil {
+				result.Status = "error"
+				result.Error = err.Error()
+				result.ErrorCode = "VALIDATION_ERROR"
+				response.Failed++
+				response.Results = append(response.Results, result)
+				continue
+			}
+		}
+
+		if updateReq.STAValue != nil {
+			if err := photo.SetSTA(*updateReq.STAValue, vo.STASourceUserProvided); err != nil {
+				result.Status = "error"
+				result.Error = err.Error()
+				result.ErrorCode = "VALIDATION_ERROR"
+				response.Failed++
+				response.Results = append(response.Results, result)
+				continue
+			}
+		}
+
+		if updateReq.SurveyYear != nil {
+			if err := photo.SetSurveyYear(*updateReq.SurveyYear); err != nil {
+				result.Status = "error"
+				result.Error = err.Error()
+				result.ErrorCode = "VALIDATION_ERROR"
+				response.Failed++
+				response.Results = append(response.Results, result)
+				continue
+			}
+		}
+
+		if err := s.photoRepo.Update(ctx, photo); err != nil {
+			s.logger.Error("Failed to update photo in batch", err, map[string]interface{}{
+				"photo_id": item.PhotoID,
+			})
+			result.Status = "error"
+			result.Error = "failed to persist update"
+			result.ErrorCode = "INTERNAL_ERROR"
+			response.Failed++
+			response.Results = append(response.Results, result)
+			continue
+		}
+
+		result.Status = "success"
+		result.Photo = &rest.UpdatePhotoResponse{
+			PhotoID:     photo.ID(),
+			Description: photo.Description(),
+			Tags:        photo.Tags(),
+			LaneCode:    photo.LaneCode(),
+			Latitude:    photo.Latitude(),
+			Longitude:   photo.Longitude(),
+			STAValue:    photo.STAValue(),
+			STASource:   photo.STASource(),
+			UpdatedAt:   photo.UpdatedAt(),
+			SurveyYear:  photo.SurveyYear(),
+		}
+		response.Succeeded++
+		response.Results = append(response.Results, result)
+	}
+
+	s.auditSvc.LogPhotoUpdate(ctx, "batch", "system", map[string]interface{}{
+		"total":     response.Total,
+		"succeeded": response.Succeeded,
+		"failed":    response.Failed,
+	})
+
+	s.logger.Info("Batch update completed", map[string]interface{}{
+		"total":     response.Total,
+		"succeeded": response.Succeeded,
+		"failed":    response.Failed,
+	})
+
+	return response, nil
+}
+
 // Delete soft-deletes or hard-deletes a photo
 func (s *PhotoServiceImpl) Delete(
 	ctx context.Context,
@@ -386,20 +591,21 @@ func (s *PhotoServiceImpl) Delete(
 // BuildPhotoResponse builds a complete photo response DTO from an entity
 func BuildPhotoResponse(photo *entity.Photo, downloadURL string) *rest.PhotoResponse {
 	resp := &rest.PhotoResponse{
-		PhotoID:       photo.ID(),
-		RouteID:       photo.RouteID(),
-		LaneCode:      photo.LaneCode(),
-		Latitude:      photo.Latitude(),
-		Longitude:     photo.Longitude(),
-		STAValue:      photo.STAValue(),
-		STASource:     photo.STASource(),
-		FileFormat:    photo.FileFormat(),
-		FileSizeBytes: photo.FileSizeBytes(),
-		Description:   photo.Description(),
-		Tags:          photo.Tags(),
-		UploadedAt:    photo.UploadedAt(),
-		DownloadURL:   downloadURL,
-		SurveyYear:    photo.SurveyYear(),
+		PhotoID:          photo.ID(),
+		RouteID:          photo.RouteID(),
+		LaneCode:         photo.LaneCode(),
+		Latitude:         photo.Latitude(),
+		Longitude:        photo.Longitude(),
+		STAValue:         photo.STAValue(),
+		STASource:        photo.STASource(),
+		FileFormat:       photo.FileFormat(),
+		FileSizeBytes:    photo.FileSizeBytes(),
+		OriginalFileName: photo.OriginalFilename(),
+		Description:      photo.Description(),
+		Tags:             photo.Tags(),
+		UploadedAt:       photo.UploadedAt(),
+		DownloadURL:      downloadURL,
+		SurveyYear:       photo.SurveyYear(),
 	}
 
 	return resp
