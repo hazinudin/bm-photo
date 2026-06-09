@@ -23,7 +23,7 @@ const (
 	UploadTokenExpiryMinutes = 15
 
 	// MaxPendingUploadsPerKey is the maximum number of pending uploads per API key
-	MaxPendingUploadsPerKey = 10
+	MaxPendingUploadsPerKey = 1000
 
 	// MaxRetriesPerPhoto is the maximum number of upload retry attempts per photo
 	MaxRetriesPerPhoto = 5
@@ -31,29 +31,29 @@ const (
 
 // Pagination defaults
 const (
-	// DefaultPage is the default page number for pagination
-	DefaultPage = 1
-
-	// DefaultPerPage is the default number of items per page
+	DefaultPage   = 1
 	DefaultPerPage = 20
+	MaxPerPage     = 100
+)
 
-	// MaxPerPage is the maximum number of items per page
-	MaxPerPage = 100
+// Batch update constraints
+const (
+	MaxBatchUpdateSize = 500
 )
 
 // Rate limits (requests per minute per API key)
 const (
 	// RateLimitSignedURL is the rate limit for signed URL requests
-	RateLimitSignedURL = 100
+	RateLimitSignedURL = 10000
 
 	// RateLimitComplete is the rate limit for complete upload requests
-	RateLimitComplete = 100
+	RateLimitComplete = 10000
 
 	// RateLimitBrowse is the rate limit for browse requests
-	RateLimitBrowse = 100
+	RateLimitBrowse = 10000
 
 	// RateLimitTotal is the total rate limit per API key
-	RateLimitTotal = 100
+	RateLimitTotal = 10000
 )
 
 // STA constraints
