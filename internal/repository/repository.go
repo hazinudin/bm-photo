@@ -64,6 +64,10 @@ type PhotoRepository interface {
 	// Only returns photos that are not soft-deleted.
 	GetByIDs(ctx context.Context, ids []vo.PhotoID) ([]*entity.Photo, error)
 
+	// BatchUpdate performs efficient batch updates for multiple photos.
+	// Each photo can have different fields updated.
+	BatchUpdate(ctx context.Context, photos []*entity.Photo) error
+
 	// GetStats returns photo counts grouped by lane_code for a given route.
 	GetStats(ctx context.Context, filter StatsFilter) (*StatsResult, error)
 }

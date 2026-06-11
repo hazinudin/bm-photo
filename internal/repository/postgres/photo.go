@@ -836,6 +836,56 @@ func (r *PhotoRepository) GetByIDs(ctx context.Context, ids []vo.PhotoID) ([]*en
 	return photos, nil
 }
 
+// BatchUpdate performs efficient batch updates using a transaction
+func (r *PhotoRepository) BatchUpdate(ctx context.Context, photos []*entity.Photo) error {
+	if len(photos) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.Pool().Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	query := `
+		UPDATE photos
+		SET 
+			description = $2,
+			tags = $3,
+			survey_year = $4,
+			lane_code = $5,
+			latitude = $6,
+			longitude = $7,
+			sta_value = $8,
+			sta_source = $9,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE photo_id = $1 AND deleted_at IS NULL`
+
+	for _, photo := range photos {
+		_, err := tx.Exec(ctx, query,
+			photo.ID().String(),
+			photo.Description(),
+			photo.Tags(),
+			photo.SurveyYear(),
+			photo.LaneCode(),
+			photo.Latitude(),
+			photo.Longitude(),
+			photo.STAValue(),
+			photo.STASource(),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update photo %s: %w", photo.ID(), err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit batch update: %w", err)
+	}
+
+	return nil
+}
+
 func (r *PhotoRepository) scanPhoto(row pgx.Row) (*entity.Photo, error) {
 	var p photoRow
 	err := row.Scan(

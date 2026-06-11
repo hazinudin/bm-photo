@@ -341,6 +341,9 @@ func (s *PhotoServiceImpl) BatchUpdate(
 		Results: make([]rest.BatchUpdateItemResult, 0, len(req.Updates)),
 	}
 
+	// Collect valid photos for batch update
+	photosToUpdate := make([]*entity.Photo, 0, len(req.Updates))
+
 	for _, item := range req.Updates {
 		result := rest.BatchUpdateItemResult{
 			PhotoID: item.PhotoID,
@@ -441,40 +444,49 @@ func (s *PhotoServiceImpl) BatchUpdate(
 			}
 		}
 
-		if err := s.photoRepo.Update(ctx, photo); err != nil {
-			s.logger.Error("Failed to update photo in batch", err, map[string]interface{}{
-				"photo_id": item.PhotoID,
-			})
-			result.Status = "error"
-			result.Error = "failed to persist update"
-			result.ErrorCode = "INTERNAL_ERROR"
-			response.Failed++
-			response.Results = append(response.Results, result)
-			continue
-		}
-
-		result.Status = "success"
-		result.Photo = &rest.UpdatePhotoResponse{
-			PhotoID:     photo.ID(),
-			Description: photo.Description(),
-			Tags:        photo.Tags(),
-			LaneCode:    photo.LaneCode(),
-			Latitude:    photo.Latitude(),
-			Longitude:   photo.Longitude(),
-			STAValue:    photo.STAValue(),
-			STASource:   photo.STASource(),
-			UpdatedAt:   photo.UpdatedAt(),
-			SurveyYear:  photo.SurveyYear(),
-		}
-		response.Succeeded++
-		response.Results = append(response.Results, result)
+		// Mark as pending success - will be confirmed after batch update
+		photosToUpdate = append(photosToUpdate, photo)
 	}
 
-	s.auditSvc.LogPhotoUpdate(ctx, "batch", "system", map[string]interface{}{
-		"total":     response.Total,
-		"succeeded": response.Succeeded,
-		"failed":    response.Failed,
-	})
+	// Perform batch update in a single transaction
+	if len(photosToUpdate) > 0 {
+		if err := s.photoRepo.BatchUpdate(ctx, photosToUpdate); err != nil {
+			s.logger.Error("Failed to batch update photos", err, map[string]interface{}{
+				"count": len(photosToUpdate),
+			})
+			// Mark all pending as failed
+			for i := range response.Results {
+				if response.Results[i].Status == "" {
+					response.Results[i].Status = "error"
+					response.Results[i].Error = "failed to persist batch update"
+					response.Results[i].ErrorCode = "INTERNAL_ERROR"
+					response.Failed++
+				}
+			}
+			return response, nil
+		}
+
+		// Mark all pending as success
+		for _, photo := range photosToUpdate {
+			response.Results = append(response.Results, rest.BatchUpdateItemResult{
+				PhotoID: photo.ID().String(),
+				Status:  "success",
+				Photo: &rest.UpdatePhotoResponse{
+					PhotoID:     photo.ID(),
+					Description: photo.Description(),
+					Tags:        photo.Tags(),
+					LaneCode:    photo.LaneCode(),
+					Latitude:    photo.Latitude(),
+					Longitude:   photo.Longitude(),
+					STAValue:    photo.STAValue(),
+					STASource:   photo.STASource(),
+					UpdatedAt:   photo.UpdatedAt(),
+					SurveyYear:  photo.SurveyYear(),
+				},
+			})
+			response.Succeeded++
+		}
+	}
 
 	s.logger.Info("Batch update completed", map[string]interface{}{
 		"total":     response.Total,
