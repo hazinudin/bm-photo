@@ -5,7 +5,7 @@ import "time"
 // CreateAPIKeyRequest - Request to create a new API key
 type CreateAPIKeyRequest struct {
 	Description string   `json:"description"`
-	Scopes      []string `json:"scopes"`                    // e.g., ["read", "write"]
+	Scopes      []string `json:"scopes"`                    // e.g., ["read", "write", "delete"]
 	ExpiresIn   *int     `json:"expires_in_days,omitempty"` // nil = no expiry
 }
 

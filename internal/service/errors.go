@@ -47,6 +47,9 @@ var (
 	// ErrScopeWrite indicates missing write scope
 	ErrScopeWrite = errors.New("write scope required")
 
+	// ErrScopeDelete indicates missing delete scope
+	ErrScopeDelete = errors.New("delete scope required")
+
 	// ErrScopeAdmin indicates missing admin scope
 	ErrScopeAdmin = errors.New("admin scope required")
 

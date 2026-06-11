@@ -93,21 +93,12 @@ func (m *Middleware) APIKeyAuth(next http.Handler) http.Handler {
 func (m *Middleware) RequireScope(scope string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			scopes, ok := r.Context().Value(APIKeyScopesKey).([]string)
-			if !ok {
+			if r.Context().Value(APIKeyScopesKey) == nil {
 				http.Error(w, `{"error": "forbidden", "code": "FORBIDDEN"}`, http.StatusForbidden)
 				return
 			}
 
-			hasScope := false
-			for _, s := range scopes {
-				if s == scope {
-					hasScope = true
-					break
-				}
-			}
-
-			if !hasScope {
+			if !HasElevatedScope(r.Context(), scope) {
 				http.Error(w, `{"error": "insufficient scope", "code": "INSUFFICIENT_SCOPE"}`, http.StatusForbidden)
 				return
 			}
@@ -191,9 +182,32 @@ func GetAPIKeyScopes(ctx context.Context) []string {
 }
 
 func HasScope(ctx context.Context, scope string) bool {
+	return HasElevatedScope(ctx, scope)
+}
+
+// ScopeHierarchy defines the permission levels. Higher scopes satisfy lower ones.
+var ScopeHierarchy = map[string]int{
+	"read":   1,
+	"write":  2,
+	"delete": 3,
+	"admin":  4,
+}
+
+// HasElevatedScope checks if the API key scopes satisfy the required scope,
+// accounting for the scope hierarchy (admin > delete > write > read).
+// For example, an admin scope satisfies a "delete" or "read" requirement.
+func HasElevatedScope(ctx context.Context, required string) bool {
 	scopes := GetAPIKeyScopes(ctx)
+	requiredLevel, ok := ScopeHierarchy[required]
+	if !ok {
+		requiredLevel = 0
+	}
 	for _, s := range scopes {
-		if s == scope {
+		level, ok := ScopeHierarchy[s]
+		if !ok {
+			continue
+		}
+		if level >= requiredLevel {
 			return true
 		}
 	}

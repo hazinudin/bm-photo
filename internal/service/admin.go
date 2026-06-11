@@ -53,7 +53,7 @@ func generateUUID() string {
 
 func (s *AdminServiceImpl) CreateAPIKey(ctx context.Context, req *rest.CreateAPIKeyRequest) (*rest.CreateAPIKeyResponse, error) {
 	// Validate scopes
-	validScopes := map[string]bool{"read": true, "write": true, "admin": true}
+	validScopes := map[string]bool{"read": true, "write": true, "delete": true, "admin": true}
 	for _, scope := range req.Scopes {
 		if !validScopes[scope] {
 			return nil, fmt.Errorf("%w: %s", ErrInvalidScope, scope)

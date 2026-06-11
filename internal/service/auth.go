@@ -12,10 +12,19 @@ import (
 
 // Scope constants
 const (
-	ScopeRead  = "read"
-	ScopeWrite = "write"
-	ScopeAdmin = "admin"
+	ScopeRead   = "read"
+	ScopeWrite  = "write"
+	ScopeDelete = "delete"
+	ScopeAdmin  = "admin"
 )
+
+// ScopeHierarchy defines the permission levels. Higher scopes satisfy lower ones.
+var ScopeHierarchy = map[string]int{
+	ScopeRead:   1,
+	ScopeWrite:  2,
+	ScopeDelete: 3,
+	ScopeAdmin:  4,
+}
 
 // AuthServiceImpl implements AuthService for API key validation
 type AuthServiceImpl struct {
@@ -121,19 +130,39 @@ func (s *AuthServiceImpl) CheckWriteScope(apiKey *repository.APIKey) error {
 	return s.CheckScope(apiKey, ScopeWrite)
 }
 
+// CheckDeleteScope verifies that the API key has delete scope (or higher)
+func (s *AuthServiceImpl) CheckDeleteScope(apiKey *repository.APIKey) error {
+	return s.CheckScope(apiKey, ScopeDelete)
+}
+
 // CheckAdminScope verifies that the API key has admin scope
 func (s *AuthServiceImpl) CheckAdminScope(apiKey *repository.APIKey) error {
 	return s.CheckScope(apiKey, ScopeAdmin)
 }
 
-// hasScope checks if the scopes slice contains the required scope
-func hasScope(scopes []string, required string) bool {
-	for _, scope := range scopes {
-		if scope == required {
+// hasElevatedScope checks if the scopes satisfy the required scope,
+// accounting for scope hierarchy: admin > delete > write > read
+func hasElevatedScope(scopes []string, required string) bool {
+	requiredLevel, ok := ScopeHierarchy[required]
+	if !ok {
+		requiredLevel = 0
+	}
+	for _, s := range scopes {
+		level, ok := ScopeHierarchy[s]
+		if !ok {
+			continue
+		}
+		if level >= requiredLevel {
 			return true
 		}
 	}
 	return false
+}
+
+// hasScope is kept for backward compatibility with CheckScope
+// Deprecated: use hasElevatedScope for hierarchy-aware checks
+func hasScope(scopes []string, required string) bool {
+	return hasElevatedScope(scopes, required)
 }
 
 // HashAPIKey creates a SHA-256 hash of an API key
