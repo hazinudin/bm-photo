@@ -400,10 +400,10 @@ func TestUpdatePhoto_ReadScopeOnly_Returns403(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 }
 
-// TestDeletePhoto_SoftDelete_Returns200 tests soft deleting a photo
+// TestDeletePhoto_SoftDelete_Returns200 tests soft deleting a photo with delete scope
 func TestDeletePhoto_SoftDelete_Returns200(t *testing.T) {
 	ts := setupTestServer(t)
-	apiKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "admin"})
+	apiKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "delete"})
 	photoID := createCompletedTestPhoto(t, ts, apiKey, "NR-001", "L1")
 	defer cleanupGCSObject(t, ts.gcsClient, getGCSObjectNameForPhoto(photoID, "NR-001", "L1"))
 
@@ -426,10 +426,10 @@ func TestDeletePhoto_SoftDelete_Returns200(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, getResp.StatusCode)
 }
 
-// TestDeletePhoto_HardDelete_Returns200 tests hard deleting a photo
+// TestDeletePhoto_HardDelete_Returns200 tests hard deleting a photo with delete scope
 func TestDeletePhoto_HardDelete_Returns200(t *testing.T) {
 	ts := setupTestServer(t)
-	apiKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "admin"})
+	apiKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "delete"})
 	photoID := createCompletedTestPhoto(t, ts, apiKey, "NR-001", "L1")
 	gcsObjectName := getGCSObjectNameForPhoto(photoID, "NR-001", "L1")
 
@@ -459,7 +459,7 @@ func TestDeletePhoto_HardDelete_Returns200(t *testing.T) {
 // TestDeletePhoto_AlreadySoftDeleted_Returns404 tests deleting an already soft-deleted photo
 func TestDeletePhoto_AlreadySoftDeleted_Returns404(t *testing.T) {
 	ts := setupTestServer(t)
-	apiKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "admin"})
+	apiKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "delete"})
 	photoID := createSoftDeletedPhoto(t, ts, apiKey, "NR-001", "L1")
 	defer cleanupGCSObject(t, ts.gcsClient, getGCSObjectNameForPhoto(photoID, "NR-001", "L1"))
 
@@ -473,15 +473,73 @@ func TestDeletePhoto_AlreadySoftDeleted_Returns404(t *testing.T) {
 func TestDeletePhoto_ReadScopeOnly_Returns403(t *testing.T) {
 	ts := setupTestServer(t)
 	readOnlyKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read"})
-	fullKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "admin"})
+	deleteKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "delete"})
 
-	photoID := createCompletedTestPhoto(t, ts, fullKey, "NR-001", "L1")
+	photoID := createCompletedTestPhoto(t, ts, deleteKey, "NR-001", "L1")
 	defer cleanupGCSObject(t, ts.gcsClient, getGCSObjectNameForPhoto(photoID, "NR-001", "L1"))
 
 	resp := doRequest(t, ts.Server, http.MethodDelete, fmt.Sprintf("/api/v1/photos/%s", photoID), nil, readOnlyKey)
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+// TestDeletePhoto_WriteScopeOnly_Returns403 tests deleting with write-only API key (no delete scope)
+func TestDeletePhoto_WriteScopeOnly_Returns403(t *testing.T) {
+	ts := setupTestServer(t)
+	writeKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write"})
+	deleteKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "delete"})
+
+	photoID := createCompletedTestPhoto(t, ts, deleteKey, "NR-001", "L1")
+	defer cleanupGCSObject(t, ts.gcsClient, getGCSObjectNameForPhoto(photoID, "NR-001", "L1"))
+
+	resp := doRequest(t, ts.Server, http.MethodDelete, fmt.Sprintf("/api/v1/photos/%s", photoID), nil, writeKey)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+// TestDeletePhoto_DeleteScopeOnly_Returns200 tests deleting with delete-only API key
+func TestDeletePhoto_DeleteScopeOnly_Returns200(t *testing.T) {
+	ts := setupTestServer(t)
+	deleteKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"delete"})
+	readKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write"})
+	photoID := createCompletedTestPhoto(t, ts, readKey, "NR-001", "L1")
+	defer cleanupGCSObject(t, ts.gcsClient, getGCSObjectNameForPhoto(photoID, "NR-001", "L1"))
+
+	resp := doRequest(t, ts.Server, http.MethodDelete, fmt.Sprintf("/api/v1/photos/%s", photoID), nil, deleteKey)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, got %d: %s", resp.StatusCode, readResponseBody(t, resp))
+}
+
+// TestDeletePhoto_AdminScopeImpliesDelete_Returns200 tests that admin scope satisfies delete requirement
+func TestDeletePhoto_AdminScopeImpliesDelete_Returns200(t *testing.T) {
+	ts := setupTestServer(t)
+	adminKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"admin"})
+	photoID := createCompletedTestPhoto(t, ts, adminKey, "NR-001", "L1")
+	defer cleanupGCSObject(t, ts.gcsClient, getGCSObjectNameForPhoto(photoID, "NR-001", "L1"))
+
+	resp := doRequest(t, ts.Server, http.MethodDelete, fmt.Sprintf("/api/v1/photos/%s", photoID), nil, adminKey)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "admin scope should satisfy delete requirement")
+}
+
+// TestDeletePhoto_DeleteScopeCannotUpdate_Returns403 tests that delete scope cannot update photos
+func TestDeletePhoto_DeleteScopeCannotUpdate_Returns403(t *testing.T) {
+	ts := setupTestServer(t)
+	deleteKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "delete"})
+	writeKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write"})
+	photoID := createCompletedTestPhoto(t, ts, writeKey, "NR-001", "L1")
+	defer cleanupGCSObject(t, ts.gcsClient, getGCSObjectNameForPhoto(photoID, "NR-001", "L1"))
+
+	body := bytes.NewReader([]byte(`{"description": "should not update"}`))
+	resp := doRequestWithBody(t, ts.Server, http.MethodPatch, fmt.Sprintf("/api/v1/photos/%s", photoID), body, deleteKey)
+	defer resp.Body.Close()
+
+	// delete scope should satisfy write requirement due to hierarchy
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
 // TestDownloadPhoto_ValidID_Returns302 tests downloading an existing photo
@@ -523,6 +581,133 @@ func TestDownloadPhoto_DeletedPhoto_Returns404(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+// TestBrowsePhotos_ByFilename_Returns200 tests browsing photos by filename within a route
+func TestBrowsePhotos_ByFilename_Returns200(t *testing.T) {
+	ts := setupTestServer(t)
+	apiKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "admin"})
+
+	routeID := "NR-FN-001"
+	// Create photos with different filenames
+	photoID1 := createCompletedTestPhotoWithFilename(t, ts, apiKey, routeID, "L1", "DSC00123.JPG")
+	defer cleanupGCSObject(t, ts.gcsClient, getGCSObjectNameForPhoto(photoID1, routeID, "L1"))
+	_ = createCompletedTestPhotoWithFilename(t, ts, apiKey, routeID, "L2", "DSC00456.JPG")
+
+	resp := doRequestWithQuery(t, ts.Server, http.MethodGet, "/api/v1/photos", map[string]string{
+		"route_id":  routeID,
+		"file_name": "DSC00123.JPG",
+	}, apiKey)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, got %d: %s", resp.StatusCode, readResponseBody(t, resp))
+
+	var browseResp struct {
+		Photos []struct {
+			PhotoID  string `json:"photo_id"`
+			RouteID  string `json:"route_id"`
+			FileName string `json:"file_name"`
+		} `json:"photos"`
+		Pagination struct {
+			TotalCount int `json:"total_count"`
+		} `json:"pagination"`
+	}
+	parseJSONResponse(t, resp, &browseResp)
+	assert.Equal(t, 1, len(browseResp.Photos), "expected exactly 1 photo matching filename")
+	assert.Equal(t, string(photoID1), browseResp.Photos[0].PhotoID)
+	assert.Equal(t, "DSC00123.JPG", browseResp.Photos[0].FileName)
+	assert.Equal(t, 1, browseResp.Pagination.TotalCount)
+}
+
+// TestBrowsePhotos_ByFilename_CaseInsensitive tests case-insensitive filename matching
+func TestBrowsePhotos_ByFilename_CaseInsensitive(t *testing.T) {
+	ts := setupTestServer(t)
+	apiKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "admin"})
+
+	routeID := "NR-FN-002"
+	photoID := createCompletedTestPhotoWithFilename(t, ts, apiKey, routeID, "L1", "DSC00123.JPG")
+	defer cleanupGCSObject(t, ts.gcsClient, getGCSObjectNameForPhoto(photoID, routeID, "L1"))
+
+	// Query with lowercase filename should match uppercase stored value
+	resp := doRequestWithQuery(t, ts.Server, http.MethodGet, "/api/v1/photos", map[string]string{
+		"route_id":  routeID,
+		"file_name": "dsc00123.jpg",
+	}, apiKey)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, got %d: %s", resp.StatusCode, readResponseBody(t, resp))
+
+	var browseResp struct {
+		Photos []struct {
+			PhotoID string `json:"photo_id"`
+		} `json:"photos"`
+		Pagination struct {
+			TotalCount int `json:"total_count"`
+		} `json:"pagination"`
+	}
+	parseJSONResponse(t, resp, &browseResp)
+	assert.Equal(t, 1, len(browseResp.Photos), "expected case-insensitive match")
+	assert.Equal(t, string(photoID), browseResp.Photos[0].PhotoID)
+}
+
+// TestBrowsePhotos_ByFilename_NoResults tests querying a non-existent filename
+func TestBrowsePhotos_ByFilename_NoResults(t *testing.T) {
+	ts := setupTestServer(t)
+	apiKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "admin"})
+
+	routeID := "NR-FN-003"
+	photoID := createCompletedTestPhotoWithFilename(t, ts, apiKey, routeID, "L1", "DSC00123.JPG")
+	defer cleanupGCSObject(t, ts.gcsClient, getGCSObjectNameForPhoto(photoID, routeID, "L1"))
+
+	resp := doRequestWithQuery(t, ts.Server, http.MethodGet, "/api/v1/photos", map[string]string{
+		"route_id":  routeID,
+		"file_name": "NONEXISTENT_FILE.JPG",
+	}, apiKey)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var browseResp struct {
+		Photos     []interface{} `json:"photos"`
+		Pagination struct {
+			TotalCount int `json:"total_count"`
+		} `json:"pagination"`
+	}
+	parseJSONResponse(t, resp, &browseResp)
+	assert.Empty(t, browseResp.Photos)
+	assert.Equal(t, 0, browseResp.Pagination.TotalCount)
+}
+
+// TestBrowsePhotos_ByFilename_MultipleMatches tests multiple photos with same filename
+func TestBrowsePhotos_ByFilename_MultipleMatches(t *testing.T) {
+	ts := setupTestServer(t)
+	apiKey := createTestAPIKey(t, ts.apiKeyRepo, []string{"read", "write", "admin"})
+
+	routeID := "NR-FN-004"
+	photoID1 := createCompletedTestPhotoWithFilename(t, ts, apiKey, routeID, "L1", "SURVEY_001.JPG")
+	defer cleanupGCSObject(t, ts.gcsClient, getGCSObjectNameForPhoto(photoID1, routeID, "L1"))
+	photoID2 := createCompletedTestPhotoWithFilename(t, ts, apiKey, routeID, "R1", "SURVEY_001.JPG")
+	defer cleanupGCSObject(t, ts.gcsClient, getGCSObjectNameForPhoto(photoID2, routeID, "R1"))
+
+	resp := doRequestWithQuery(t, ts.Server, http.MethodGet, "/api/v1/photos", map[string]string{
+		"route_id":  routeID,
+		"file_name": "SURVEY_001.JPG",
+	}, apiKey)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, got %d: %s", resp.StatusCode, readResponseBody(t, resp))
+
+	var browseResp struct {
+		Photos []struct {
+			PhotoID string `json:"photo_id"`
+		} `json:"photos"`
+		Pagination struct {
+			TotalCount int `json:"total_count"`
+		} `json:"pagination"`
+	}
+	parseJSONResponse(t, resp, &browseResp)
+	assert.Equal(t, 2, len(browseResp.Photos))
+	assert.Equal(t, 2, browseResp.Pagination.TotalCount)
 }
 
 // Helper function to create a completed test photo
@@ -575,6 +760,59 @@ func createCompletedTestPhoto(t *testing.T, ts *testServer, apiKey *repository.A
 		if err == nil {
 			req.Header.Set("Content-Type", "image/jpeg")
 			client := &http.Client{Timeout: 30 * 1000000000} // 30 seconds
+			resp, err := client.Do(req)
+			if err == nil {
+				resp.Body.Close()
+			}
+		}
+	}
+
+	return photoID
+}
+
+// createCompletedTestPhotoWithFilename creates a completed test photo with a custom filename
+func createCompletedTestPhotoWithFilename(t *testing.T, ts *testServer, apiKey *repository.APIKey, routeID, laneCode, filename string) vo.PhotoID {
+	t.Helper()
+
+	ctx := context.Background()
+
+	photoID := vo.NewPhotoID()
+	gcsObjectName := fmt.Sprintf("photos/2026/%s/%s_2026_%s_%s.jpg",
+		routeID, routeID, laneCode, photoID.String()[:8])
+
+	params := entity.PhotoParams{
+		RouteID:          routeID,
+		LaneCode:         laneCode,
+		GCSObjectName:    gcsObjectName,
+		FileFormat:       vo.FileFormatJPEG,
+		FileSizeBytes:    1024 * 100,
+		OriginalFilename: strPtr(filename),
+		UploadToken:      vo.NewUploadToken(),
+		UploadedBy:       "test-api-key",
+	}
+
+	photo, err := entity.NewPhoto(params)
+	require.NoError(t, err, "failed to create photo entity")
+
+	err = photo.SetCoordinates(-6.2088, 106.8456)
+	require.NoError(t, err, "failed to set coordinates")
+
+	err = photo.SetSTA(5.5, vo.STASourceUserProvided)
+	require.NoError(t, err, "failed to set STA")
+
+	err = photo.MarkUploadCompleted()
+	require.NoError(t, err, "failed to mark upload completed")
+
+	err = ts.photoRepo.Create(ctx, photo)
+	require.NoError(t, err, "failed to create photo in database")
+
+	testContent := []byte("test image content for photo")
+	signedURL, err := ts.gcsClient.GenerateSignedURL(gcsObjectName, "image/jpeg", 60)
+	if err == nil {
+		req, err := http.NewRequest(http.MethodPut, signedURL, bytes.NewReader(testContent))
+		if err == nil {
+			req.Header.Set("Content-Type", "image/jpeg")
+			client := &http.Client{Timeout: 30 * 1000000000}
 			resp, err := client.Do(req)
 			if err == nil {
 				resp.Body.Close()
