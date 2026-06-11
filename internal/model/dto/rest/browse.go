@@ -14,6 +14,7 @@ type BrowsePhotosRequest struct {
 	STAEnd     *float64 `query:"sta_end"`
 	LaneCode   *string  `query:"lane_code"`
 	SurveyYear *int     `query:"survey_year"`
+	Filename   *string  `query:"file_name"`
 	Page       int      `query:"page"`
 	PerPage    int      `query:"per_page"`
 }
