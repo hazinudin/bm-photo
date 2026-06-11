@@ -1,11 +1,12 @@
 """Tests for the auto_paginate function in bm_photo_client._pagination."""
 
 from datetime import datetime
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
 from bm_photo_client._pagination import auto_paginate
+from bm_photo_client.exceptions import RateLimitError
 from bm_photo_client.models import BrowsePhotosResponse, PhotoSummary, Pagination
 
 
@@ -158,3 +159,128 @@ class TestAutoPaginate:
                 call(page=2, route_id="NR-001", survey_year=2024),
             ]
         )
+
+    def test_retry_on_rate_limit_exceeded(self):
+        """Test that auto_paginate retries when rate limit is exceeded.
+
+        Verifies that:
+        - Failed request is retried
+        - Eventually succeeds and returns photos
+        """
+        mock_fetch_page = MagicMock()
+
+        photos = [make_photo_summary("photo-1")]
+        response = make_response(photos, total_pages=1, current_page=1)
+
+        mock_fetch_page.side_effect = [
+            RateLimitError("rate limit exceeded", code="RATE_LIMIT_EXCEEDED"),
+            response,
+        ]
+
+        with patch("bm_photo_client._pagination.time.sleep") as mock_sleep:
+            result = auto_paginate(mock_fetch_page, base_delay=0.1)
+
+        assert len(result) == 1
+        assert mock_fetch_page.call_count == 2
+        mock_sleep.assert_called_once_with(0.1)
+
+    def test_retry_exponential_backoff(self):
+        """Test that retry delay increases exponentially.
+
+        Verifies that:
+        - Delay doubles after each retry
+        - Multiple retries use increasing delays
+        """
+        mock_fetch_page = MagicMock()
+
+        photos = [make_photo_summary("photo-1")]
+        response = make_response(photos, total_pages=1, current_page=1)
+
+        mock_fetch_page.side_effect = [
+            RateLimitError("rate limit exceeded", code="RATE_LIMIT_EXCEEDED"),
+            RateLimitError("rate limit exceeded", code="RATE_LIMIT_EXCEEDED"),
+            RateLimitError("rate limit exceeded", code="RATE_LIMIT_EXCEEDED"),
+            response,
+        ]
+
+        with patch("bm_photo_client._pagination.time.sleep") as mock_sleep:
+            result = auto_paginate(mock_fetch_page, base_delay=1.0)
+
+        assert len(result) == 1
+        assert mock_fetch_page.call_count == 4
+        assert mock_sleep.call_count == 3
+        assert mock_sleep.call_args_list == [
+            call(1.0),
+            call(2.0),
+            call(4.0),
+        ]
+
+    def test_retry_respects_max_delay(self):
+        """Test that retry delay does not exceed max_delay.
+
+        Verifies that:
+        - Delay caps at max_delay value
+        """
+        mock_fetch_page = MagicMock()
+
+        photos = [make_photo_summary("photo-1")]
+        response = make_response(photos, total_pages=1, current_page=1)
+
+        mock_fetch_page.side_effect = [
+            RateLimitError("rate limit exceeded", code="RATE_LIMIT_EXCEEDED"),
+            RateLimitError("rate limit exceeded", code="RATE_LIMIT_EXCEEDED"),
+            response,
+        ]
+
+        with patch("bm_photo_client._pagination.time.sleep") as mock_sleep:
+            result = auto_paginate(mock_fetch_page, base_delay=30.0, max_delay=60.0)
+
+        assert len(result) == 1
+        assert mock_sleep.call_count == 2
+        assert mock_sleep.call_args_list == [
+            call(30.0),
+            call(60.0),  # 60.0, not 120.0
+        ]
+
+    def test_raises_after_max_retries(self):
+        """Test that RateLimitError is raised after max retries exhausted.
+
+        Verifies that:
+        - Exception is raised after max_retries + 1 attempts
+        - No more retries after limit reached
+        """
+        mock_fetch_page = MagicMock()
+        mock_fetch_page.side_effect = RateLimitError(
+            "rate limit exceeded", code="RATE_LIMIT_EXCEEDED"
+        )
+
+        with patch("bm_photo_client._pagination.time.sleep"):
+            with pytest.raises(RateLimitError) as exc_info:
+                auto_paginate(mock_fetch_page, max_retries=3, base_delay=0.1)
+
+        assert exc_info.value.code == "RATE_LIMIT_EXCEEDED"
+        assert mock_fetch_page.call_count == 4  # initial + 3 retries
+
+    def test_retry_across_multiple_pages(self):
+        """Test that retry works correctly when paginating through multiple pages.
+
+        Verifies that:
+        - Rate limit on page 2 is handled correctly
+        - Pagination continues after successful retry
+        """
+        mock_fetch_page = MagicMock()
+
+        page1_photos = [make_photo_summary(f"photo-{i}") for i in range(3)]
+        page2_photos = [make_photo_summary(f"photo-{i}") for i in range(3, 6)]
+
+        mock_fetch_page.side_effect = [
+            make_response(page1_photos, total_pages=2, current_page=1),
+            RateLimitError("rate limit exceeded", code="RATE_LIMIT_EXCEEDED"),
+            make_response(page2_photos, total_pages=2, current_page=2),
+        ]
+
+        with patch("bm_photo_client._pagination.time.sleep"):
+            result = auto_paginate(mock_fetch_page, base_delay=0.1)
+
+        assert len(result) == 6
+        assert mock_fetch_page.call_count == 3
