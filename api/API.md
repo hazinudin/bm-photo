@@ -62,7 +62,10 @@ API keys have one or more scopes that determine access permissions:
 |-------|-------------|-----------|
 | `read` | Read photos and metadata | `GET /api/v1/photos/*` |
 | `write` | Upload and update photos | `POST /api/v1/photos/*`, `PATCH /api/v1/photos/*` |
-| `admin` | Delete photos | `DELETE /api/v1/photos/*` |
+| `delete` | Delete photos | `DELETE /api/v1/photos/*` |
+| `admin` | Manage API keys and all operations | `POST/GET/DELETE /api/v1/admin/*` |
+
+**Scope Hierarchy:** Higher scopes implicitly satisfy lower ones: `admin` > `delete` > `write` > `read`.
 
 ### Authentication Errors
 
@@ -408,7 +411,7 @@ Updates photo metadata. Only provided fields are updated.
 
 #### DELETE /api/v1/photos/{photo_id}
 
-**Scope Required:** `admin`
+**Scope Required:** `delete`
 
 Deletes a photo. Soft delete by default; use `?hard=true` for permanent deletion.
 

@@ -1,9 +1,9 @@
 # Product Requirements Document (PRD)
 # Bina Marga Survey Photo Service
 
-**Version:** 1.7  
-**Date:** April 9, 2026  
-**Status:** In Progress - GCS Object Name Fix + UUID v7 Migration  
+**Version:** 1.8  
+**Date:** June 9, 2026  
+**Status:** In Progress - Batch Update Endpoint  
 
 ---
 
@@ -48,6 +48,7 @@
 |-------|------|--------|-----|
 | **GCS Object Name Collision (UUID v7 Migration)** | Apr 9, 2026 | ✅ Fixed | `internal/service/upload.go` - Changed `generateGCSObjectName` to use the real photo ID (UUID v7, 36 chars) instead of generating a new random short UUID. This prevented multiple photos from overwriting each other in GCS when using UUID v7 (which has a different byte layout than v4, causing apparent collisions when only first 8 chars were used). Added `SetGCSObjectName()` method to `Photo` entity to update GCS object name after photo ID is generated. |
 | **UUID Version** | Apr 9, 2026 | ✅ Migrated | Photo IDs now use UUID v7 (time-ordered) instead of UUID v4. This maintains sortability by creation time while being globally unique. |
+| **Rate Limit on Bulk Metadata Updates** | Jun 9, 2026 | ✅ Fixed | Added `PATCH /api/v1/photos/batch` endpoint for synchronous batch updates (max 500 items per request). Python client auto-chunks larger batches. This resolves the rate-limit issue where clients updating 20k+ photos with individual PATCH requests exceeded the 10,000 req/min rate limit. |
 
 ---
 
@@ -489,7 +490,127 @@ by other services when coordinate data becomes available.
 - **Authentication:** API Key with write permissions
 - **Note:** Coordinates (latitude/longitude) must be provided together. When sta_value is updated, sta_source is set to user_provided.
 
-#### 2.3.2 Delete Photo
+#### 2.3.2 Batch Update Photo Metadata
+
+- **Priority:** Must Have
+- **API Method:** PATCH /api/v1/photos/batch
+- **Description:** Update metadata for multiple photos in a single request. Designed for clients that need to update large numbers of photos (e.g., 20,000+ photos per validation pass) without hitting individual-request rate limits.
+- **Authentication:** API Key with write permissions
+- **Maximum Batch Size:** 500 items per request
+- **Processing Mode:** Synchronous — the server processes all items and returns per-item success/failure results. Individual item failures do not roll back successful items.
+- **Rate Limit Consideration:** With 500 items per batch and a 10,000 req/min rate limit, 20,000 photos require only 40 HTTP requests (well within limits). The Python client auto-chunks larger lists.
+
+**Request:**
+```json
+PATCH /api/v1/photos/batch
+Content-Type: application/json
+X-API-Key: {api_key}
+
+{
+  "updates": [
+    {
+      "photo_id": "550e8400-e29b-41d4-a716-446655440000",
+      "lane_code": "L2",
+      "sta_value": 150.5,
+      "description": "Updated description for route segment"
+    },
+    {
+      "photo_id": "660e8400-e29b-41d4-a716-446655440001",
+      "latitude": -6.2090,
+      "longitude": 106.8460,
+      "tags": ["damage", "bridge"]
+    }
+  ]
+}
+```
+
+**Editable Fields (per item):**
+- `description` (string, optional): Photo description
+- `tags` (array of strings, optional): Tags for categorization
+- `survey_year` (integer, optional): Survey year
+- `lane_code` (string, optional): Lane identifier (L1-L10 or R1-R10)
+- `latitude` (decimal, optional): Latitude coordinate (EPSG:4326)
+- `longitude` (decimal, optional): Longitude coordinate (EPSG:4326)
+- `sta_value` (decimal, optional): Station value along route
+
+**Validation Rules (per item):**
+- All validation rules from single-photo update apply (see section 2.3.1)
+- Both `latitude` and `longitude` must be provided together
+- Latitude must be between -90 and 90
+- Longitude must be between -180 and 180
+- STA value must be >= 0
+- When `sta_value` is updated, `sta_source` is set to `user_provided`
+- `lane_code` must match format L1-L10 or R1-R10
+- `survey_year` must be between 2000 and current year + 1
+
+**Batch-Level Validation (entire request):**
+- `updates` array must not be empty (at least 1 item)
+- `updates` array must not exceed 500 items
+- Duplicate `photo_id` values within the same request are rejected
+
+**Response (200 OK):**
+```json
+{
+  "total": 2,
+  "succeeded": 1,
+  "failed": 1,
+  "results": [
+    {
+      "photo_id": "550e8400-e29b-41d4-a716-446655440000",
+      "status": "success",
+      "photo": {
+        "photo_id": "550e8400-e29b-41d4-a716-446655440000",
+        "description": "Updated description for route segment",
+        "tags": [],
+        "survey_year": 2024,
+        "lane_code": "L2",
+        "latitude": null,
+        "longitude": null,
+        "sta_value": 150.5,
+        "sta_source": "user_provided",
+        "updated_at": "2026-06-09T10:00:00Z"
+      }
+    },
+    {
+      "photo_id": "660e8400-e29b-41d4-a716-446655440001",
+      "status": "error",
+      "error": "photo not found or has been deleted",
+      "error_code": "PHOTO_NOT_FOUND"
+    }
+  ]
+}
+```
+
+**Error Codes (per item):**
+
+| Error Code | Description |
+|------------|-------------|
+| PHOTO_NOT_FOUND | Photo ID does not exist or has been soft-deleted |
+| PHOTO_DELETED | Photo has been soft-deleted |
+| VALIDATION_ERROR | Field-level validation failed (e.g., invalid lane_code, partial coordinates) |
+
+**Top-Level Error Responses:**
+
+| HTTP Status | Error Code | Description |
+|-------------|------------|-------------|
+| 400 | BATCH_EMPTY | `updates` array is empty |
+| 400 | BATCH_TOO_LARGE | `updates` array exceeds 500 items |
+| 400 | DUPLICATE_PHOTO_IDS | Same `photo_id` appears more than once in the batch |
+| 401 | MISSING_API_KEY / INVALID_API_KEY | Authentication failure |
+| 403 | INSUFFICIENT_SCOPE | API key lacks write scope |
+
+**Processing Strategy:**
+1. Validate batch-level constraints (empty, too large, duplicates)
+2. Batch-fetch all photos via single SQL query (`WHERE id = ANY($1) AND deleted_at IS NULL`)
+3. Per-item: validate request fields, look up photo, apply entity update methods
+4. Per-item: persist updates — each item's update is its own DB transaction. A failure on item N does not roll back items 1 through N-1
+5. Log single audit entry with batch item count
+6. Return per-item results with success/error status
+
+**Python Client Auto-Chunking:**
+The Python client (`bm_photo_client`) provides a `batch_update_photos()` method that automatically chunks lists exceeding 500 items into multiple HTTP requests, merging all results into a single response object. See the Python client documentation for details.
+
+#### 2.3.3 Delete Photo
 - **Priority:** Must Have
 - **API Method:** DELETE /api/v1/photos/{photo_id}
 - **Description:** Soft delete (mark as deleted) or hard delete
@@ -499,7 +620,7 @@ by other services when coordinate data becomes available.
   - Hard delete: Remove from database and delete from GCS
 - **Default:** Soft delete
 
-#### 2.3.3 Bulk Delete
+#### 2.3.4 Bulk Delete
 - **Priority:** Should Have
 - **API Method:** POST /api/v1/photos/bulk-delete
 - **Description:** Delete multiple photos by criteria
@@ -649,6 +770,7 @@ Response:
 
 #### 4.4.4 API Security
 - **Rate Limiting:** 100 requests per minute per API key
+- **Batch Update Rate Limiting:** The batch update endpoint (`PATCH /api/v1/photos/batch`) processes up to 500 items per request, effectively allowing 50,000 photo updates per minute within the 100 req/min rate limit. This is designed for bulk metadata validation workflows.
 - **Input Validation:** Sanitize all inputs, prevent SQL injection
 - **File Validation:** Validate MIME types, not just extensions
 - **Virus Scanning:** Consider scanning uploaded files
@@ -713,6 +835,8 @@ func main() {
     mux.HandleFunc("POST /api/v1/photos/confirm", handlers.ConfirmUpload)
     mux.HandleFunc("GET /api/v1/photos/{id}", handlers.GetPhoto)
     mux.HandleFunc("GET /api/v1/photos", handlers.BrowsePhotos)
+    mux.HandleFunc("PATCH /api/v1/photos/{id}", handlers.UpdatePhoto)
+    mux.HandleFunc("PATCH /api/v1/photos/batch", handlers.BatchUpdatePhotos)
     
     // Middleware chain
     handler := middleware.Chain(
@@ -735,7 +859,7 @@ func main() {
 CREATE TABLE api_keys (
     key_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     key_hash VARCHAR(255) NOT NULL UNIQUE,
-    scope VARCHAR(50)[] NOT NULL, -- {'read', 'write', 'admin'}
+    scope VARCHAR(50)[] NOT NULL, -- {'read', 'write', 'delete', 'admin'}
     description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMP WITH TIME ZONE,
@@ -906,7 +1030,7 @@ gRPC API:
 - Input validation and sanitization
 - API Key authentication middleware
 - Rate limiting middleware
-- Request routing for uploads, downloads, and browsing
+- Request routing for uploads, downloads, browsing, and batch operations
 - JSON request/response serialization
 
 **2. gRPC Handler Layer**
@@ -943,7 +1067,7 @@ gRPC API:
 
 **REST API:** Used for all client-facing operations including:
 - Photo upload (signed URL generation, upload completion)
-- Photo management (update metadata, delete)
+- Photo management (update metadata, **batch update metadata**, delete)
 - Photo browsing and search
 - Health checks and status endpoints
 
@@ -1281,6 +1405,114 @@ Content-Type: application/json
 - 400 Bad Request: Invalid field values or partial coordinate update
 - 404 Not Found: Photo ID does not exist
 - 401 Unauthorized: Invalid API key
+
+#### 6.1.12a Batch Update Photo Metadata
+
+```http
+PATCH /api/v1/photos/batch
+Content-Type: application/json
+X-API-Key: {api_key}
+```
+
+**Purpose:** Update metadata for multiple photos in a single request. Designed for bulk operations where individual PATCH requests would exceed rate limits (e.g., updating 20,000+ photos per validation pass).
+
+**Batch Constraints:**
+- Maximum 500 items per request
+- Duplicate `photo_id` values within a single request are rejected
+- Items are processed independently — individual failures do not affect successful items
+
+**Request:**
+```json
+{
+  "updates": [
+    {
+      "photo_id": "550e8400-e29b-41d4-a716-446655440000",
+      "lane_code": "L2",
+      "sta_value": 150.5
+    },
+    {
+      "photo_id": "660e8400-e29b-41d4-a716-446655440001",
+      "latitude": -6.2090,
+      "longitude": 106.8460,
+      "tags": ["damage", "bridge"]
+    }
+  ]
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "total": 2,
+  "succeeded": 1,
+  "failed": 1,
+  "results": [
+    {
+      "photo_id": "550e8400-e29b-41d4-a716-446655440000",
+      "status": "success",
+      "photo": {
+        "photo_id": "550e8400-e29b-41d4-a716-446655440000",
+        "description": "Updated description for route segment",
+        "tags": [],
+        "survey_year": 2024,
+        "lane_code": "L2",
+        "latitude": null,
+        "longitude": null,
+        "sta_value": 150.5,
+        "sta_source": "user_provided",
+        "updated_at": "2026-06-09T10:00:00Z"
+      }
+    },
+    {
+      "photo_id": "660e8400-e29b-41d4-a716-446655440001",
+      "status": "error",
+      "error": "photo not found or has been deleted",
+      "error_code": "PHOTO_NOT_FOUND"
+    }
+  ]
+}
+```
+
+**Top-Level Error Responses:**
+
+| HTTP Status | Code | Description |
+|-------------|------|-------------|
+| 400 | BATCH_EMPTY | `updates` array is empty |
+| 400 | BATCH_TOO_LARGE | `updates` array exceeds 500 items |
+| 400 | DUPLICATE_PHOTO_IDS | Same `photo_id` appears multiple times |
+| 401 | MISSING_API_KEY / INVALID_API_KEY | Authentication failure |
+| 403 | INSUFFICIENT_SCOPE | API key lacks write scope |
+
+**Per-Item Error Codes:**
+
+| Error Code | Description |
+|------------|-------------|
+| PHOTO_NOT_FOUND | Photo ID does not exist or has been soft-deleted |
+| VALIDATION_ERROR | Field-level validation failed |
+
+**Processing Flow:**
+1. Validate batch-level constraints (size, duplicates)
+2. Batch-fetch all photos: `SELECT ... WHERE id = ANY($1) AND deleted_at IS NULL`
+3. For each item: validate fields, apply entity updates, persist
+4. Each item's update is independent — a failure on item N does not roll back items 1..N-1
+5. Return per-item results
+
+**Python Client Usage:**
+```python
+from bm_photo_client import BMPhotoClient, BatchUpdateItem
+
+client = BMPhotoClient(base_url="https://api.bm-photo.example.com", api_key="...")
+
+# The client auto-chunks lists > 500 into multiple HTTP requests
+updates = [
+    BatchUpdateItem(photo_id="...", lane_code="L2"),
+    BatchUpdateItem(photo_id="...", sta_value=150.5),
+    # ... up to 20,000+ items
+]
+
+result = client.batch_update_photos(updates)
+print(f"Succeeded: {result.succeeded}, Failed: {result.failed}")
+```
 
 #### 6.1.13 Delete Photo
 
@@ -1685,6 +1917,8 @@ message PhotoMetadata {
 **Application Metrics:**
 - `photo_upload_total{status}` - Count of photo uploads by status
 - `photo_download_total{status}` - Count of photo downloads
+- `photo_batch_update_total{status}` - Count of batch update requests by status (success/partial/error)
+- `photo_batch_update_items_total{status}` - Count of individual photo items processed in batch updates
 - `api_request_duration_seconds{method, endpoint}` - Request latency
 - `api_request_total{method, endpoint, status}` - Request count
 - `active_api_keys_count` - Number of active API keys
@@ -1862,7 +2096,9 @@ message PhotoMetadata {
   - Signed URL requests: 10 per minute
   - Complete upload requests: 10 per minute
   - Browse requests: 100 per minute
+  - Batch update requests: 100 per minute (each processing up to 500 items)
   - Total requests: 100 per minute
+- **Batch Update Rate Effective Throughput:** With 100 req/min and 500 items/batch, up to 50,000 photo updates per minute per API key
 - **Response:** HTTP 429 Too Many Requests with Retry-After header
 - **Concurrent Uploads:** Limit pending uploads per API key (default: 5)
 
@@ -1908,7 +2144,7 @@ message PhotoMetadata {
 **Phase 2 Features:**
 - Web-based admin interface for photo management
 - Mobile SDK for photo upload from field devices
-- Batch upload API for bulk operations
+- ~~Batch upload API for bulk operations~~ ✅ Implemented as batch update endpoint (v1.8)
 - Machine learning-based photo classification
 - Route condition analysis from photos
 
@@ -2365,6 +2601,7 @@ func runMigrations(dbURL string) error {
 |---------|------|--------|---------|
 | 1.0 | 2026-03-26 | Initial | Initial PRD creation |
 | 1.6 | 2026-04-08 | Update | Added coordinate and STA update support to PATCH endpoint |
+| 1.8 | 2026-06-09 | Update | Added batch update endpoint (PATCH /api/v1/photos/batch) for bulk metadata updates, Python client auto-chunking |
 
 ---
 
