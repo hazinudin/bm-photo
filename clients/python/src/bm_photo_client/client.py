@@ -324,8 +324,9 @@ class BMPhotoClient:
     ) -> BatchUpdateResponse:
         """Update metadata for multiple photos in batch.
 
-        Automatically chunks the updates into batches of chunk_size items,
-        sends each batch as a separate HTTP request, and merges the results.
+        Automatically deduplicates updates by photo_id (keeping the last occurrence),
+        chunks them into batches of chunk_size items, sends each batch as a separate
+        HTTP request, and merges the results.
 
         Args:
             updates: List of BatchUpdateItem objects to update.
@@ -345,12 +346,18 @@ class BMPhotoClient:
         if not updates:
             return BatchUpdateResponse(total=0, succeeded=0, failed=0, results=[])
 
+        # Deduplicate by photo_id, keeping the last occurrence
+        seen = {}
+        for item in updates:
+            seen[item.photo_id] = item
+        deduped_updates = list(seen.values())
+
         all_results: List[BatchUpdateItemResult] = []
         total_succeeded = 0
         total_failed = 0
 
-        for i in range(0, len(updates), chunk_size):
-            chunk = updates[i : i + chunk_size]
+        for i in range(0, len(deduped_updates), chunk_size):
+            chunk = deduped_updates[i : i + chunk_size]
 
             self._check_cooldown()
 
@@ -378,7 +385,7 @@ class BMPhotoClient:
                 on_progress(chunk_response)
 
         return BatchUpdateResponse(
-            total=len(updates),
+            total=len(deduped_updates),
             succeeded=total_succeeded,
             failed=total_failed,
             results=all_results,
