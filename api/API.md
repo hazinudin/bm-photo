@@ -324,7 +324,7 @@ Retrieves complete metadata for a specific photo.
 
 **Scope Required:** `read`
 
-Redirects to a signed download URL for the photo file. The signed URL expires after 60 minutes.
+Redirects to a signed download URL for the photo file. The signed URL expires after 6 days 23 hours 50 minutes (10070 minutes).
 
 **Path Parameters:**
 - `photo_id` (string, required) - UUID format

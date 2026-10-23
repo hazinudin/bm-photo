@@ -162,7 +162,7 @@ func NewPhotoHandler(photoSvc service.PhotoService, gcsClient service.GCSClient,
 1. Extract `photo_id` from path via `r.PathValue("photo_id")`
 2. Parse to `vo.PhotoID` — if invalid, return 400
 3. Call `photoSvc.GetByID(ctx, photoID)`
-4. Generate download URL: `service.GenerateDownloadURL(gcsClient, photo.GCSObjectName(), 60)`
+4. Generate download URL: `service.GenerateDownloadURL(gcsClient, photo.GCSObjectName(), 10070)`
 5. Build response: `service.BuildPhotoResponse(photo, downloadURL)`
 6. Return 200
 
@@ -229,7 +229,7 @@ func NewPhotoHandler(photoSvc service.PhotoService, gcsClient service.GCSClient,
 **Flow:**
 1. Extract `photo_id` from path
 2. Call `photoSvc.GetByID(ctx, photoID)`
-3. Generate signed download URL: `gcsClient.GenerateSignedURL(photo.GCSObjectName(), photo.FileFormat().ContentType(), 15)`
+3. Generate signed download URL: `service.GenerateDownloadURL(gcsClient, photo.GCSObjectName(), 10070)`
 4. Return 302 redirect to signed URL
 
 **Error mapping:**

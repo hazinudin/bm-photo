@@ -500,7 +500,7 @@
       "get": {
         "tags": ["Photos"],
         "summary": "Download photo",
-        "description": "Redirects to a signed download URL for the photo file. URL expires after 60 minutes. Requires 'read' scope.",
+        "description": "Redirects to a signed download URL for the photo file. URL expires after 6 days 23 hours 50 minutes (10070 minutes). Requires 'read' scope.",
         "operationId": "downloadPhoto",
         "parameters": [
           {
@@ -915,7 +915,7 @@
           "download_url": {
             "type": "string",
             "format": "uri",
-            "description": "Signed URL for download (expires in 60 minutes)",
+            "description": "Signed URL for download (expires in 6 days 23 hours 50 minutes)",
             "example": "https://storage.googleapis.com/bm-survey-photos/photos/2026/NR-001/NR-001_2026_L1_a1b2c3d4.jpg?Expires=..."
           }
         }
