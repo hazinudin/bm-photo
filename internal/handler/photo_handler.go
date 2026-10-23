@@ -14,7 +14,10 @@ import (
 )
 
 const (
-	downloadURLExpiryMinutes = 60
+	// downloadURLExpiryMinutes is how long a signed photo download URL stays valid.
+	// 10070 minutes = 6 days 23 hours 50 minutes, kept just below the GCS
+	// signed URL maximum of 604800 seconds (7 days).
+	downloadURLExpiryMinutes = 10070
 )
 
 type PhotoHandler struct {
